@@ -1,13 +1,19 @@
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { evaluate, openHeadlessChrome } from "./headlessChrome.mjs";
 import { openHeadlessFirefox } from "./headlessFirefox.mjs";
+
+/** Where Playwright and its WebKit are installed, inside this checkout's scratch (docs/validation/README.md says how). */
+const PLAYWRIGHT_HOME = fileURLToPath(new URL("../../build/tools/playwright/", import.meta.url));
 
 /** What a check's requests are named, after the browser's own name. */
 const CHECK_NAME = "foss-earth-check/1.0";
 
 /**
- * One page of a headless browser, the same to a check whether it is Chrome or Firefox:
- * every request the browser makes is answered by `respond`, so there is no server and
- * no network.
+ * One page of a headless browser, the same to a check whether it is Chrome, Firefox or
+ * WebKit, Safari's engine: every request the page makes is answered by `respond`, so
+ * there is no server and no network.
  *
  * `respond(url)` returns `{ status, headers, body }`, or null for a request that must
  * fail, as one to another origin. `chromeArgs` are Chrome's switches and `firefoxPrefs`
@@ -16,7 +22,50 @@ const CHECK_NAME = "foss-earth-check/1.0";
 export async function openHeadlessPage(browser, profileDirectory, { respond, width, height, binary, chromeArgs = [], firefoxPrefs = {} }) {
   if (browser === "firefox") return firefoxPage(profileDirectory, { respond, width, height, binary, firefoxPrefs });
   if (browser === "chrome") return chromePage(profileDirectory, { respond, width, height, binary, chromeArgs });
-  throw new Error(`No headless page for "${browser}": chrome or firefox.`);
+  if (browser === "webkit") return webkitPage(profileDirectory, { respond, width, height });
+  throw new Error(`No headless page for "${browser}": chrome, firefox or webkit.`);
+}
+
+/**
+ * Playwright's build of WebKit: the engine of Safari, on this Mac's GPU through WebGL. It has no
+ * WebGPU, and it is not Safari on a phone: its memory limits and its GPU are this Mac's.
+ */
+async function webkitPage(profileDirectory, { respond, width, height }) {
+  // Its browsers, like its package, stay inside the checkout. Playwright reads this as it loads.
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(PLAYWRIGHT_HOME, "browsers");
+  let webkit;
+  try {
+    ({ webkit } = createRequire(path.join(PLAYWRIGHT_HOME, "package.json"))("playwright"));
+  } catch {
+    throw new Error("Playwright is not installed: npm install --prefix build/tools/playwright playwright, then its WebKit (docs/validation/README.md).");
+  }
+  // Playwright's routing does not reach a worker's requests in WebKit: the app's tile workers would ask the real
+  // network. A proxy at an address nothing listens on refuses whatever the routing below does not answer.
+  const browser = await webkit.launch({ headless: true, proxy: { server: "http://127.0.0.1:9" } });
+  try {
+    const probe = await browser.newPage();
+    const userAgent = await probe.evaluate(() => navigator.userAgent);
+    await probe.close();
+    // A context of its own for the profile's name: nothing of it is kept on disk.
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, userAgent: `${userAgent} ${CHECK_NAME}` });
+    const page = await context.newPage();
+    await page.route("**/*", async route => {
+      const answer = await respond(new URL(route.request().url())).catch(() => null);
+      if (!answer) { await route.abort("blockedbyclient").catch(() => {}); return; }
+      await route.fulfill({ status: answer.status, headers: answer.headers ?? {}, body: Buffer.from(answer.body ?? "") }).catch(() => {});
+    });
+    return {
+      product: `WebKit ${/Version\/([\d.]+)/.exec(userAgent)?.[1] ?? browser.version()} (Playwright ${browser.version()})`,
+      navigate: url => page.goto(url, { waitUntil: "commit" }),
+      // As Chrome's Runtime.evaluate: statements, the last one's value, a promise awaited.
+      evaluate: expression => page.evaluate(code => (0, eval)(code), expression),
+      screenshot: () => page.screenshot({ type: "png" }),
+      close: () => browser.close(),
+    };
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
 }
 
 async function chromePage(profileDirectory, { respond, width, height, binary, chromeArgs }) {

@@ -46,8 +46,9 @@ async function webkitPage(profileDirectory, { respond, width, height }) {
     const probe = await browser.newPage();
     const userAgent = await probe.evaluate(() => navigator.userAgent);
     await probe.close();
-    // A context of its own for the profile's name: nothing of it is kept on disk.
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, userAgent: `${userAgent} ${CHECK_NAME}` });
+    // A context of its own for the profile's name: nothing of it is kept on disk. No service workers: one that takes
+    // control of the page puts all of the page's requests out of the routing's reach, and they fail at the proxy.
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, userAgent: `${userAgent} ${CHECK_NAME}`, serviceWorkers: "block" });
     const page = await context.newPage();
     await page.route("**/*", async route => {
       const answer = await respond(new URL(route.request().url())).catch(() => null);

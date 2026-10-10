@@ -1,0 +1,83 @@
+{
+  "name": "@foss-earth/browser-testing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Node browser lifecycle, interception, screenshot and bounded evidence helpers for development tests.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/foss-earth/browser-testing.git"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./core": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./chrome": {
+      "types": "./src/headlessChrome.d.ts",
+      "import": "./src/headlessChrome.mjs"
+    },
+    "./firefox": {
+      "types": "./src/headlessFirefox.d.ts",
+      "import": "./src/headlessFirefox.mjs"
+    },
+    "./page": {
+      "types": "./src/headlessPage.d.ts",
+      "import": "./src/headlessPage.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@foss-earth/ci": "file:deps/foss-earth-ci-1db73d1ddb342e348a2c9e8387f7bbc7ebb3225e.tgz",
+    "typescript": "5.9.3",
+    "@types/node": "24.12.4"
+  },
+  "scripts": {
+    "check:source": "node scripts/check-source.mjs",
+    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2023 --skipLibCheck false fixtures/types/public-consumer.ts",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "check:conformance": "node node_modules/@foss-earth/ci/bin/conformance.mjs --consumer . --trusted-release .attribution-release.json --output-root build/common-conformance",
+    "check:attribution": "node node_modules/@foss-earth/ci/bin/attribution.mjs --repo . --refs-file build/repository-split/intended-publication-refs.json",
+    "ci": "npm run check:conformance && npm run check:source && npm run typecheck && npm test",
+    "check:consumer": "node scripts/check-installed-consumer.mjs"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "COMMERCIAL_LICENSE.md",
+    "NOTICE",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "AGENTS.md",
+    "SOURCE_PROVENANCE.json",
+    "SOURCE_RECEIPT.json",
+    "docs",
+    ".attribution.json",
+    ".attribution-release.json",
+    ".github/workflows/attribution-check.yml",
+    "deps/foss-earth-ci-1db73d1ddb342e348a2c9e8387f7bbc7ebb3225e.tgz",
+    "scripts/check-source.mjs",
+    "scripts/check-installed-consumer.mjs",
+    "fixtures/installed",
+    "fixtures/types"
+  ],
+  "fossEarthBrowserTools": {
+    "scope": "Development/test only; no automatic browser/tool acquisition or application runtime dependency",
+    "playwrightVersion": "1.55.0",
+    "playwrightCoreVersion": "1.55.0",
+    "webkitRevision": "2203",
+    "requireExplicitPaths": true,
+    "qualification": "Reviewed six-commit human ancestry attached; candidate package and browser qualification pending; coordinator owns publication"
+  }
+}

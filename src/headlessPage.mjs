@@ -1,110 +1,75 @@
 import { createRequire } from "node:module";
+import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { evaluate, openHeadlessChrome } from "./headlessChrome.mjs";
 import { openHeadlessFirefox } from "./headlessFirefox.mjs";
+import { bounded, connectOwnedBrowserServer, resolveTimeouts } from "./lifecycle.mjs";
+import { createEvidence, sanitizeText } from "./evidence.mjs";
 
-/** Where Playwright and its WebKit are installed, inside this checkout's scratch (docs/validation/README.md says how). */
-const PLAYWRIGHT_HOME = fileURLToPath(new URL("../../build/tools/playwright/", import.meta.url));
+const CHECK_NAME = "foss-earth-browser-testing/0.1";
 
-/** What a check's requests are named, after the browser's own name. */
-const CHECK_NAME = "foss-earth-check/1.0";
-
-/**
- * One page of a headless browser, the same to a check whether it is Chrome, Firefox or
- * WebKit, Safari's engine: every request the page makes is answered by `respond`, so
- * there is no server and no network.
- *
- * `respond(url, { navigation })` returns `{ status, headers, body }`, or null for a
- * request that must fail, as one to another origin; `navigation` says the request is
- * the browser's for a page, not a page's own `fetch`. `chromeArgs` are Chrome's
- * switches and `firefoxPrefs` Firefox's preferences, such as `--disable-webgl2` and
- * `webgl.enable-webgl2: false`. `workers`, in Chrome only, answers a service worker's
- * requests too, so the app's own worker installs and takes control.
- *
- * The page: `navigate(url)`, `evaluate(expression)`, `screenshot()`, `touch()`, which
- * presses a key as a person does (Shift, which no app acts on), and `close()`.
- */
-export async function openHeadlessPage(browser, profileDirectory, { respond, width, height, binary, chromeArgs = [], firefoxPrefs = {}, workers = false }) {
-  if (workers && browser !== "chrome") throw new Error("Only Chrome's page answers a service worker's requests.");
-  if (browser === "firefox") return firefoxPage(profileDirectory, { respond, width, height, binary, firefoxPrefs });
-  if (browser === "chrome") return chromePage(profileDirectory, { respond, width, height, binary, chromeArgs, workers });
-  if (browser === "webkit") return webkitPage(profileDirectory, { respond, width, height });
-  throw new Error(`No headless page for "${browser}": chrome, firefox or webkit.`);
+/** Preserve the original page protocol API; explicit live mode does not intercept requests. */
+export async function openHeadlessPage(browser, profileDirectory, options) {
+  if (!options || typeof options !== "object") throw new Error("Page options are required");
+  const mode = options.mode ?? (typeof options.respond === "function" ? "interception" : undefined);
+  if (!["interception", "live"].includes(mode)) throw new Error("Select page mode: interception or live");
+  if (mode === "interception" && typeof options.respond !== "function") throw new Error("Interception mode requires respond");
+  if (mode === "live" && options.respond != null) throw new Error("Live mode does not accept respond");
+  if (!["chrome", "firefox", "webkit"].includes(browser)) throw new Error(`No headless page for "${browser}": chrome, firefox or webkit`);
+  if (!Number.isSafeInteger(options.width) || !Number.isSafeInteger(options.height) || options.width < 1 || options.height < 1 || options.width > 8192 || options.height > 8192) throw new Error("Finite bounded page width/height required");
+  if (typeof profileDirectory !== "string" || !profileDirectory) throw new Error("An isolated page profile directory is required");
+  if (mode === "interception" && options.workers && browser !== "chrome") throw new Error("Worker request interception is supported only by Chrome; select live mode for Firefox/WebKit worker behavior");
+  const common = { ...options, mode, timeouts: resolveTimeouts(options.timeouts), evidence: createEvidence(options.evidenceLimits) };
+  if (browser === "chrome") return chromePage(profileDirectory, common);
+  if (browser === "firefox") return firefoxPage(profileDirectory, common);
+  return webkitPage(profileDirectory, common);
 }
 
-/**
- * Playwright's build of WebKit: the engine of Safari, on this Mac's GPU through WebGL. It has no
- * WebGPU, and it is not Safari on a phone: its memory limits and its GPU are this Mac's.
- */
-async function webkitPage(profileDirectory, { respond, width, height }) {
-  // Its browsers, like its package, stay inside the checkout. Playwright reads this as it loads.
-  process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(PLAYWRIGHT_HOME, "browsers");
-  let webkit;
+async function chromePage(profileDirectory, { respond, mode, width, height, binary, chromeArgs = [], workers = false, timeouts, evidence }) {
+  const chrome = await openHeadlessChrome(profileDirectory, binary, chromeArgs, { timeouts, onLifecycle: value => evidence.add("lifecycle", value) });
   try {
-    ({ webkit } = createRequire(path.join(PLAYWRIGHT_HOME, "package.json"))("playwright"));
-  } catch {
-    throw new Error("Playwright is not installed: npm install --prefix build/tools/playwright playwright, then its WebKit (docs/validation/README.md).");
-  }
-  // Playwright's routing does not reach a worker's requests in WebKit: the app's tile workers would ask the real
-  // network. A proxy at an address nothing listens on refuses whatever the routing below does not answer.
-  const browser = await webkit.launch({ headless: true, proxy: { server: "http://127.0.0.1:9" } });
-  try {
-    const probe = await browser.newPage();
-    const userAgent = await probe.evaluate(() => navigator.userAgent);
-    await probe.close();
-    // A context of its own for the profile's name: nothing of it is kept on disk. No service workers: one that takes
-    // control of the page puts all of the page's requests out of the routing's reach, and they fail at the proxy.
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, userAgent: `${userAgent} ${CHECK_NAME}`, serviceWorkers: "block" });
-    const page = await context.newPage();
-    await page.route("**/*", async route => {
-      const answer = await respond(new URL(route.request().url()), { navigation: route.request().isNavigationRequest() }).catch(() => null);
-      if (!answer) { await route.abort("blockedbyclient").catch(() => {}); return; }
-      await route.fulfill({ status: answer.status, headers: answer.headers ?? {}, body: Buffer.from(answer.body ?? "") }).catch(() => {});
-    });
-    return {
-      product: `WebKit ${/Version\/([\d.]+)/.exec(userAgent)?.[1] ?? browser.version()} (Playwright ${browser.version()})`,
-      navigate: url => page.goto(url, { waitUntil: "commit" }),
-      // As Chrome's Runtime.evaluate: statements, the last one's value, a promise awaited.
-      evaluate: expression => page.evaluate(code => (0, eval)(code), expression),
-      screenshot: () => page.screenshot({ type: "png" }),
-      touch: () => page.keyboard.press("Shift"),
-      close: () => browser.close(),
-    };
-  } catch (error) {
-    await browser.close();
-    throw error;
-  }
-}
-
-async function chromePage(profileDirectory, { respond, width, height, binary, chromeArgs, workers }) {
-  const chrome = await openHeadlessChrome(profileDirectory, binary ?? process.env.CHROME_BIN, chromeArgs);
-  try {
-    const version = await chrome.send("Browser.getVersion");
+    const version = chrome.version;
     const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
     const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
     const send = (method, params = {}) => chrome.send(method, params, sessionId);
-    // The page's requests are intercepted on its session; with `workers`, every request of the browser is, on none, which a service worker's are among.
     const intercept = workers ? (method, params) => chrome.send(method, params) : send;
+    const requestUrls = new Map();
     chrome.onEvent(message => {
-      if (message.method !== "Fetch.requestPaused" || (workers ? Boolean(message.sessionId) : message.sessionId !== sessionId)) return;
+      if (message.sessionId === sessionId) {
+        const data = message.params ?? {};
+        if (message.method === "Runtime.consoleAPICalled") evidence.add("console", { level: data.type, text: (data.args ?? []).map(arg => arg.value ?? arg.description ?? "").join(" ") });
+        if (message.method === "Runtime.exceptionThrown") evidence.add("console", { level: "error", text: data.exceptionDetails?.exception?.description ?? data.exceptionDetails?.text ?? "Browser exception" });
+        if (message.method === "Network.requestWillBeSent") {
+          if (requestUrls.size >= 1000) requestUrls.delete(requestUrls.keys().next().value);
+          requestUrls.set(data.requestId, data.request.url);
+          evidence.add("network", { phase: "request", url: data.request.url, method: data.request.method });
+        }
+        if (message.method === "Network.responseReceived") evidence.add("network", { phase: "response", url: data.response.url, status: data.response.status });
+        if (message.method === "Network.loadingFailed") { evidence.add("network", { phase: "failure", url: requestUrls.get(data.requestId), error: data.errorText }); requestUrls.delete(data.requestId); }
+        if (message.method === "Network.loadingFinished") requestUrls.delete(data.requestId);
+      }
+      if (mode !== "interception" || message.method !== "Fetch.requestPaused" || (workers ? Boolean(message.sessionId) : message.sessionId !== sessionId)) return;
       void (async () => {
         const { requestId, request, resourceType } = message.params;
-        // A navigation that a service worker answers reaches here as the worker's request, or the browser's preload for it: neither is a "Document", and both ask for a page as a navigation does.
         const accepts = Object.entries(request.headers).find(([name]) => name.toLowerCase() === "accept")?.[1] ?? "";
-        const answer = await respond(new URL(request.url), { navigation: resourceType === "Document" || accepts.includes("text/html") });
+        let answer;
+        try { answer = await bounded(Promise.resolve(respond(new URL(request.url), { navigation: resourceType === "Document" || accepts.includes("text/html") })), timeouts.commandMs, "Request responder timed out"); }
+        catch (error) { evidence.add("network", { phase: "responder-error", url: request.url, error: error.message }); }
         if (!answer) { await intercept("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }); return; }
         await intercept("Fetch.fulfillRequest", { requestId, responseCode: answer.status, responseHeaders: Object.entries(answer.headers ?? {}).map(([name, value]) => ({ name, value })), body: Buffer.from(answer.body ?? "").toString("base64") });
-      })().catch(() => {});
+      })().catch(error => evidence.add("network", { phase: "interception-error", url: message.params?.request?.url, error: error.message }));
     });
     await send("Runtime.enable");
     await send("Page.enable");
-    await intercept("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+    await send("Network.enable");
+    if (mode === "interception") await intercept("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
     await send("Emulation.setUserAgentOverride", { userAgent: `${version.userAgent} ${CHECK_NAME}` });
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    const facts = { browser: "chrome", mode, workers, pid: chrome.pid, engineVersion: sanitizeText(version.product, 200) };
+    let closed;
     return {
-      product: version.product,
-      navigate: url => send("Page.navigate", { url }),
+      product: version.product, facts,
+      navigate: url => send("Page.navigate", { url: String(url) }),
       evaluate: expression => evaluate(chrome, sessionId, expression),
       async screenshot() { return Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"); },
       async touch() {
@@ -112,53 +77,135 @@ async function chromePage(profileDirectory, { respond, width, height, binary, ch
         await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...shift });
         await send("Input.dispatchKeyEvent", { type: "keyUp", ...shift });
       },
-      async close() {
-        await chrome.send("Target.closeTarget", { targetId }).catch(() => {});
-        await chrome.close();
+      close() {
+        // Browser.close owns target cleanup and has the inherited graceful exit contract.
+        closed ??= chrome.close();
+        return closed;
       },
+      captureEvidence: () => evidence.snapshot(version.product, facts),
     };
   } catch (error) {
-    await chrome.close();
+    try { await chrome.close(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Chrome page setup and cleanup failed"); }
     throw error;
   }
 }
 
-async function firefoxPage(profileDirectory, { respond, width, height, binary, firefoxPrefs }) {
-  const firefox = await openHeadlessFirefox(profileDirectory, binary ?? process.env.FIREFOX_BIN, firefoxPrefs);
+async function firefoxPage(profileDirectory, { respond, mode, width, height, binary, firefoxPrefs = {}, workers = false, timeouts, evidence }) {
+  const firefox = await openHeadlessFirefox(profileDirectory, binary, firefoxPrefs, { timeouts, onLifecycle: value => evidence.add("lifecycle", value) });
   try {
     const context = await firefox.context();
     const userAgent = await firefox.evaluate(context, "navigator.userAgent");
     firefox.onEvent(message => {
-      if (message.method !== "network.beforeRequestSent" || !message.params.isBlocked) return;
+      const data = message.params ?? {};
+      if (message.method === "log.entryAdded") evidence.add("console", { level: data.level, text: data.text ?? (data.args ?? []).map(value => value.value ?? "").join(" ") });
+      if (message.method === "network.beforeRequestSent") evidence.add("network", { phase: "request", url: data.request?.url, method: data.request?.method });
+      if (message.method === "network.responseCompleted") evidence.add("network", { phase: "response", url: data.response?.url ?? data.request?.url, status: data.response?.status });
+      if (message.method === "network.fetchError") evidence.add("network", { phase: "failure", url: data.request?.url, error: data.errorText });
+      if (mode !== "interception" || message.method !== "network.beforeRequestSent" || !data.isBlocked) return;
       void (async () => {
-        const request = message.params.request.request;
-        // The request's destination where Firefox gives one; else whether it belongs to a navigation.
-        const { destination } = message.params.request;
-        const answer = await respond(new URL(message.params.request.url), { navigation: destination ? destination === "document" : message.params.navigation != null });
+        const request = data.request.request;
+        const { destination } = data.request;
+        let answer;
+        try { answer = await bounded(Promise.resolve(respond(new URL(data.request.url), { navigation: destination ? destination === "document" : data.navigation != null })), timeouts.commandMs, "Request responder timed out"); }
+        catch (error) { evidence.add("network", { phase: "responder-error", url: data.request.url, error: error.message }); }
         if (!answer) { await firefox.send("network.failRequest", { request }); return; }
         await firefox.send("network.provideResponse", {
           request, statusCode: answer.status, reasonPhrase: answer.status === 200 ? "OK" : "Not Found",
           headers: Object.entries(answer.headers ?? {}).map(([name, value]) => ({ name, value: { type: "string", value } })),
           body: { type: "base64", value: Buffer.from(answer.body ?? "").toString("base64") },
         });
-      })().catch(() => {});
+      })().catch(error => evidence.add("network", { phase: "interception-error", url: data.request?.url, error: error.message }));
     });
-    await firefox.send("session.subscribe", { events: ["network.beforeRequestSent"] });
-    await firefox.send("network.addIntercept", { phases: ["beforeRequestSent"] });
+    await firefox.send("session.subscribe", { events: ["log.entryAdded", "network.beforeRequestSent", "network.responseCompleted", "network.fetchError"] });
+    if (mode === "interception") await firefox.send("network.addIntercept", { phases: ["beforeRequestSent"] });
     await firefox.send("emulation.setUserAgentOverride", { userAgent: `${userAgent} ${CHECK_NAME}`, contexts: [context] });
     await firefox.send("browsingContext.setViewport", { context, viewport: { width, height }, devicePixelRatio: 1 });
+    const product = /Firefox\/[\d.]+/.exec(userAgent)?.[0] ?? "Firefox";
+    const facts = { browser: "firefox", mode, workers, pid: firefox.pid, engineVersion: sanitizeText(firefox.session?.capabilities?.browserVersion ?? product, 200) };
     return {
-      product: /Firefox\/[\d.]+/.exec(userAgent)?.[0] ?? "Firefox",
-      // "none": the caller waits for what it needs, as with Chrome's Page.navigate.
-      navigate: url => firefox.send("browsingContext.navigate", { context, url, wait: "none" }),
+      product, facts,
+      navigate: url => firefox.send("browsingContext.navigate", { context, url: String(url), wait: "none" }),
       evaluate: expression => firefox.evaluate(context, expression),
       async screenshot() { return Buffer.from((await firefox.send("browsingContext.captureScreenshot", { context, origin: "viewport" })).data, "base64"); },
-      // WebDriver's code for Shift.
       touch: () => firefox.send("input.performActions", { context, actions: [{ type: "key", id: "keyboard", actions: [{ type: "keyDown", value: "\uE008" }, { type: "keyUp", value: "\uE008" }] }] }),
-      close: () => firefox.close(),
+      close: () => firefox.close(), captureEvidence: () => evidence.snapshot(product, facts),
     };
   } catch (error) {
-    await firefox.close();
+    try { await firefox.close(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Firefox page setup and cleanup failed"); }
+    throw error;
+  }
+}
+
+/** Exact optional injected Playwright, loaded only when WebKit is explicitly selected. */
+async function loadWebkit(tool) {
+  if (!tool || typeof tool.packageRoot !== "string" || !tool.packageRoot || typeof tool.browserCachePath !== "string" || !tool.browserCachePath) throw new Error("WebKit requires explicit Playwright packageRoot and browserCachePath");
+  if (tool.expectedVersion !== "1.55.0" || tool.expectedCoreVersion !== "1.55.0" || String(tool.expectedWebkitRevision) !== "2203") throw new Error("Reviewed WebKit tool contract is Playwright1.55.0/core1.55.0/WebKit2203");
+  const requireTool = createRequire(path.join(path.resolve(tool.packageRoot), "package.json"));
+  const playwrightPath = requireTool.resolve("playwright/package.json");
+  const corePath = requireTool.resolve("playwright-core/package.json");
+  const playwrightPackage = JSON.parse(await readFile(playwrightPath, "utf8"));
+  const corePackage = JSON.parse(await readFile(corePath, "utf8"));
+  const browsers = JSON.parse(await readFile(path.join(path.dirname(corePath), "browsers.json"), "utf8"));
+  const webkitEntry = browsers.browsers.find(value => value.name === "webkit");
+  if (playwrightPackage.version !== tool.expectedVersion || corePackage.version !== tool.expectedCoreVersion || String(webkitEntry?.revision) !== String(tool.expectedWebkitRevision)) throw new Error("Injected Playwright/core/WebKit tool versions do not match reviewed contract");
+  // Cache selection is explicit. A caller selecting a different cache must use a new Node process;
+  // Playwright reads this variable when loaded and cannot safely share concurrent cache roots.
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH != null && path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH) !== path.resolve(tool.browserCachePath)) throw new Error("Existing Playwright browser cache differs from explicit selection");
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.resolve(tool.browserCachePath);
+  const { webkit } = requireTool("playwright");
+  const executable = webkit.executablePath();
+  const relativeExecutable = path.relative(path.resolve(tool.browserCachePath), executable);
+  if (relativeExecutable.split(path.sep)[0] !== `webkit-${tool.expectedWebkitRevision}`) throw new Error("Selected WebKit executable does not belong to the reviewed revision/cache; platform revision overrides are not approved implicitly");
+  await access(executable); // Missing tools fail; no download or backend fallback.
+  return { webkit, toolVersions: { playwright: playwrightPackage.version, playwrightCore: corePackage.version }, webkitRevision: String(webkitEntry.revision) };
+}
+
+/** WebKit engine qualification is not mobile Safari or WebGPU qualification. */
+async function webkitPage(profileDirectory, { respond, mode, width, height, workers = false, timeouts, evidence, playwright, proxy }) {
+  const tool = await loadWebkit(playwright);
+  const temporaryDirectory = path.join(profileDirectory, "tmp");
+  await mkdir(temporaryDirectory, { recursive: true });
+  const server = await tool.webkit.launchServer({ host: "127.0.0.1", port: 0, headless: true, timeout: timeouts.startupMs,
+    env: { ...process.env, TMPDIR: temporaryDirectory, TMP: temporaryDirectory, TEMP: temporaryDirectory },
+    downloadsPath: path.join(profileDirectory, "downloads"), tracesDir: path.join(profileDirectory, "traces"),
+    ...(mode === "interception" ? { proxy: { server: "http://127.0.0.1:9" } } : proxy ? { proxy } : {}) });
+  const owned = await connectOwnedBrowserServer(server, endpoint => tool.webkit.connect(endpoint, { timeout: timeouts.startupMs }), timeouts,
+    value => evidence.add("lifecycle", value));
+  const { instance, close } = owned;
+  try {
+    const probe = await bounded(instance.newPage(), timeouts.commandMs, "WebKit probe page setup timed out");
+    const userAgent = await bounded(probe.evaluate(() => navigator.userAgent), timeouts.commandMs, "WebKit user-agent probe timed out");
+    await bounded(probe.close(), timeouts.commandMs, "WebKit probe close timed out");
+    // The isolated context does not persist a person's profile. profileDirectory remains a caller-owned evidence identity.
+    const context = await bounded(instance.newContext({ viewport: { width, height }, deviceScaleFactor: 1,
+      userAgent: `${userAgent} ${CHECK_NAME}`, serviceWorkers: mode === "live" && workers ? "allow" : "block" }), timeouts.commandMs, "WebKit context setup timed out");
+    const page = await bounded(context.newPage(), timeouts.commandMs, "WebKit page setup timed out");
+    page.on("console", message => evidence.add("console", { level: message.type(), text: message.text() }));
+    page.on("pageerror", error => evidence.add("console", { level: "error", text: error.message }));
+    page.on("request", request => evidence.add("network", { phase: "request", url: request.url(), method: request.method() }));
+    page.on("response", response => evidence.add("network", { phase: "response", url: response.url(), status: response.status() }));
+    page.on("requestfailed", request => evidence.add("network", { phase: "failure", url: request.url(), error: request.failure()?.errorText }));
+    if (mode === "interception") await bounded(page.route("**/*", async route => {
+      let answer;
+      try { answer = await bounded(Promise.resolve(respond(new URL(route.request().url()), { navigation: route.request().isNavigationRequest() })), timeouts.commandMs, "Request responder timed out"); }
+      catch (error) { evidence.add("network", { phase: "responder-error", url: route.request().url(), error: error.message }); }
+      if (!answer) { await bounded(route.abort("blockedbyclient"), timeouts.commandMs, "WebKit request abort timed out").catch(() => {}); return; }
+      await bounded(route.fulfill({ status: answer.status, headers: answer.headers ?? {}, body: Buffer.from(answer.body ?? "") }), timeouts.commandMs, "WebKit response fulfillment timed out")
+        .catch(error => evidence.add("network", { phase: "interception-error", url: route.request().url(), error: error.message }));
+    }), timeouts.commandMs, "WebKit interception setup timed out");
+    const product = `WebKit ${/Version\/([\d.]+)/.exec(userAgent)?.[1] ?? instance.version()} (engine ${instance.version()})`;
+    const facts = { browser: "webkit", mode, workers, engineVersion: instance.version(), toolVersions: tool.toolVersions,
+      webkitRevision: tool.webkitRevision, pid: owned.pid, transportOrigin: owned.transportOrigin, persistentProfile: false };
+    return {
+      product, facts,
+      navigate: url => page.goto(String(url), { waitUntil: "commit", timeout: timeouts.commandMs }),
+      evaluate: expression => bounded(page.evaluate(code => (0, eval)(code), expression), timeouts.commandMs, "WebKit evaluation timed out"),
+      screenshot: () => page.screenshot({ type: "png", timeout: timeouts.commandMs }),
+      touch: () => bounded(page.keyboard.press("Shift"), timeouts.commandMs, "WebKit key dispatch timed out"),
+      close, captureEvidence: () => evidence.snapshot(product, facts),
+    };
+  } catch (error) {
+    try { await close(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "WebKit page setup and cleanup failed"); }
     throw error;
   }
 }

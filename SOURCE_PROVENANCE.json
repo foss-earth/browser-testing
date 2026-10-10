@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "owner": "foss-earth/browser-testing",
+  "scope": "Generic helper extraction only; app assertions and runtime remain with their owners",
+  "license": "AGPL-3.0-only",
+  "historicalSourceRepository": "foss-earth/foss-earth.github.io",
+  "sourceInputs": [
+    {
+      "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+      "sizeBytes": 4374,
+      "sourceHead": "90e23b3ee96f53ec5900afc5991a21fffa58649d",
+      "sourcePath": "scripts/lib/headlessChrome.mjs",
+      "lastChangedRevision": "995c27bde7671da08ff3ce5f1d859f8d87235a0c",
+      "destination": "src/headlessChrome.mjs",
+      "destinationSha256": "79cd5772262aa7d7374909740c26e8473dd9fe81f193338d164c28be623ce15f",
+      "destinationSizeBytes": 6924,
+      "lineage": {
+        "revision": "995c27bde7671da08ff3ce5f1d859f8d87235a0c",
+        "authorName": "Felipegalind0",
+        "authorEmail": "Felipegalind0@outlook.com",
+        "authorDate": "2026-10-01T16:45:58-05:00",
+        "committerName": "Felipegalind0",
+        "committerEmail": "Felipegalind0@outlook.com",
+        "committerDate": "2026-10-01T16:45:58-05:00",
+        "subject": "Let headless Chrome finish shutting down before the helper signals it, so it deletes its code-sign clone instead of leaving 1.4 GB under /var/folders on every run, and close the globe comparison's browser when a run throws."
+      },
+      "historyStatus": "Original revision preserved; reviewed six-commit isolated history attached to the destination migration branch",
+      "extractedLastChangedRevision": "cd14dd15795f9275a80becf70ece0791d1c5acd7"
+    },
+    {
+      "sha256": "f64f7c1323cd6e6e5614209a5df5c3d17db1201fe92d917f01dc1b59fd5998c9",
+      "sizeBytes": 5631,
+      "sourceHead": "90e23b3ee96f53ec5900afc5991a21fffa58649d",
+      "sourcePath": "scripts/lib/headlessFirefox.mjs",
+      "lastChangedRevision": "bd0369cf61d749a8cf9592509bb12658fff2c237",
+      "destination": "src/headlessFirefox.mjs",
+      "destinationSha256": "2baddaaba9cb65358d929ea94b74fd1a0b9c8fbaabcf22bf06d988c8739d4f60",
+      "destinationSizeBytes": 7705,
+      "lineage": {
+        "revision": "bd0369cf61d749a8cf9592509bb12658fff2c237",
+        "authorName": "Felipegalind0",
+        "authorEmail": "Felipegalind0@outlook.com",
+        "authorDate": "2026-10-03T22:15:04-05:00",
+        "committerName": "Felipegalind0",
+        "committerEmail": "Felipegalind0@outlook.com",
+        "committerDate": "2026-10-03T22:15:04-05:00",
+        "subject": "Draw an orb from a preview sheet in Firefox, where it was black. The loader cut each cube's faces out of the decoded sheet with createImageBitmap's rectangle; in Firefox such a bitmap reports the face's size, but WebGL uploads the whole sheet behind it, which the face's texture refuses, so every orb of the UMN tour was black on Firefox for Android, and on Firefox 157 on this Mac. The faces are now cut through a canvas, which gives each a bitmap of its own pixels. scripts/lib/headlessFirefox.mjs drives the installed Firefox headless over WebDriver BiDi with a profile in the run's folder, and scripts/lib/headlessPage.mjs gives a check one page, served by the check, that is the same in Chrome and Firefox; preview-sheet.mjs --browser=firefox uses it: the orb from the sheet was 6.5 to 9.2 dB from the orb from its files before, and is 50.6 to 51.0 dB on WebGL 2 and WebGL 1 now, as Chrome's three renderers still are. The validation guide says what Firefox does with such a bitmap, and the app files page that the live tour's worker installed, kept its 63 files and reloaded from them in Firefox."
+      },
+      "historyStatus": "Original revision preserved; reviewed six-commit isolated history attached to the destination migration branch",
+      "extractedLastChangedRevision": "d742f26c878faa1c7459171f32ce8a1857cbbed4"
+    },
+    {
+      "sha256": "6f132ceac9dae212aa665a19d579a8805a28ce5f51c5e2060ad55e283b12ba45",
+      "sizeBytes": 10513,
+      "sourceHead": "90e23b3ee96f53ec5900afc5991a21fffa58649d",
+      "sourcePath": "scripts/lib/headlessPage.mjs",
+      "lastChangedRevision": "718993c6d928283d7850055ee403d61d854e161d",
+      "destination": "src/headlessPage.mjs",
+      "destinationSha256": "7c6f29bcd38c042f7924065e15314c4009576588df0df56ba18d1db21fa284cb",
+      "destinationSizeBytes": 18341,
+      "lineage": {
+        "revision": "718993c6d928283d7850055ee403d61d854e161d",
+        "authorName": "Felipegalind0",
+        "authorEmail": "Felipegalind0@outlook.com",
+        "authorDate": "2026-10-04T14:58:46-05:00",
+        "committerName": "Felipegalind0",
+        "committerEmail": "Felipegalind0@outlook.com",
+        "committerDate": "2026-10-04T14:58:46-05:00",
+        "subject": "Tell a browser's own copy of an older page from the published one, and say which version runs. On 2026-10-04 an iPhone, tried after that day's release, was still running the UMN tour's app built on 2026-10-03 at 05:33 UTC, four releases old, from Safari's copy of the page: its Settings tab had neither App files nor Diagnostics, so the report could not be found, and the crash after five minutes was the old app's. A browser that restores a tab shows the copy it has and asks no one. The appFiles plugin now stamps each page of a build with its build's time, in a meta named foss-earth-build, and the app asks the site for its own page as it starts, when the page is shown again or the network is back, and every ten minutes while it is shown. A page older than the published one reloads itself while nobody has touched it, once for a published version, and the page that comes says so in its log; one that has been touched, or that a reload already gave back, says a newer version is published, with a Reload button. A page that a reload showed in a tab that remembers no reload does not reload itself either, so a browser whose storage does not outlive a reload cannot be asked forever. A page the site answers with that is older than this one is left alone. Settings \u2192 App files says which of these the page is, with Ask now and the reload, beside three parameters: app.checkPublished, app.checkPublishedEvery and app.reloadOlderPage; the report and the ?report page have the same line. The app also says which version it is in the first line of its log, to the minute and with its commits, and the plugin records FOSS Earth's own commit in an app of another repository, which Settings \u2192 About and the report's Build line now show and the page's source carries beside the app's. scripts/validation/published-version.mjs is the site and the browser's copy both: on FOSS Earth's build and the tour's, an older copy reloaded itself once into the published page in Chrome, Firefox and WebKit, did not when touched first or when the browser kept answering with the copy, and did the same under the app's worker in Chrome; headlessPage.mjs tells a check which requests are navigations, presses a key as a person does, and in Chrome answers a service worker's requests. An app published before this cannot be reached by it, and what Safari on a phone does with it has not been seen: TODO says what to look for."
+      },
+      "historyStatus": "Original revision preserved; reviewed six-commit isolated history attached to the destination migration branch",
+      "extractedLastChangedRevision": "2757c7fc57677c21c2c32b8dd2483742613f0e47"
+    }
+  ],
+  "compatibilityInput": {
+    "repository": "0sfs/0sfs.github.io",
+    "historicalPath": "scripts/headless-chrome.mjs",
+    "sha256": "08092b6c5a8eb2ae7621b377a8781244bcc609bc376fb7d182dad4c6f6714fdd",
+    "sizeBytes": 4852,
+    "purpose": "Retained waitForExit extension comparison; author/source ancestry not replaced",
+    "retainedPublicContract": "Chrome.waitForExit(timeoutMs) observes actual exit; timeout does not signal"
+  },
+  "humanLineage": {
+    "originalAuthor": "Felipegalind0",
+    "sourceRevisionSemantics": "Original human identities/dates/messages/blob modes retained in reviewed path-limited history; extracted IDs/parents/paths differ, with original complete archive history preserved."
+  },
+  "historyStatus": "Reviewed six-commit isolated harness ancestry attached; public intended-ref/package/browser qualification pending",
+  "originalsPreserved": true,
+  "privateDecisionEvidenceId": "decision.json",
+  "privateDecisionSha256": "56229a55f61f1a25c18e6ba35fbdff65a38326d3b5ccde741295a9b115162f09",
+  "browserBinariesOrToolingBundled": false,
+  "qualification": "Additive fixture/metadata candidate prepared after retained failedCI; no candidate package or browser qualification",
+  "genericLifecycleDestination": "src/lifecycle.mjs",
+  "genericEvidenceDestination": "src/evidence.mjs",
+  "reviewedAncestry": {
+    "approvedBaseRevision": "2757c7fc57677c21c2c32b8dd2483742613f0e47",
+    "approvedBaseTree": "d3c1973886a5d1020308c7d18100118f39c0199a",
+    "originalSourceRevision": "90e23b3ee96f53ec5900afc5991a21fffa58649d",
+    "pathMapping": {
+      "scripts/lib/headlessChrome.mjs": "src/headlessChrome.mjs",
+      "scripts/lib/headlessFirefox.mjs": "src/headlessFirefox.mjs",
+      "scripts/lib/headlessPage.mjs": "src/headlessPage.mjs"
+    },
+    "commits": [
+      {
+        "originalRevision": "ee4de566c9d1fd534eea15df59d07bf791bafd0c",
+        "extractedRevision": "dc2ecab4957e65d762dc3c5045f5068c6618148c",
+        "originalParents": [
+          "3a62100c568d230778ed82afc148f92f71cf762f"
+        ],
+        "extractedParents": [],
+        "tree": "2a1294e6fce019a32f8e2035a50cd3a31021a3f7",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "7358573cf208cf8bd1e228f2bfba1f1059b31bee",
+            "mode": "100644",
+            "sha256": "ce3a35065e04d9be3d0e8d2528265448dd0f50647b1d1a0f27ea61b123f82368",
+            "sizeBytes": 4044
+          }
+        ]
+      },
+      {
+        "originalRevision": "995c27bde7671da08ff3ce5f1d859f8d87235a0c",
+        "extractedRevision": "cd14dd15795f9275a80becf70ece0791d1c5acd7",
+        "originalParents": [
+          "e36f1d2b1409b961423e41106f2277bbf80c6628"
+        ],
+        "extractedParents": [
+          "dc2ecab4957e65d762dc3c5045f5068c6618148c"
+        ],
+        "tree": "cafb6588d5b9a54d01e6739904acc09ed9db0112",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "b5bd414e7272a38c647267687cab6d18b060a6b6",
+            "mode": "100644",
+            "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+            "sizeBytes": 4374
+          }
+        ]
+      },
+      {
+        "originalRevision": "bd0369cf61d749a8cf9592509bb12658fff2c237",
+        "extractedRevision": "d742f26c878faa1c7459171f32ce8a1857cbbed4",
+        "originalParents": [
+          "b289879cbf83e003170cf23665f582f6f63c63c6"
+        ],
+        "extractedParents": [
+          "cd14dd15795f9275a80becf70ece0791d1c5acd7"
+        ],
+        "tree": "39e36af68e0ef5f009bf88ae820c06528af62622",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "b5bd414e7272a38c647267687cab6d18b060a6b6",
+            "mode": "100644",
+            "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+            "sizeBytes": 4374
+          },
+          {
+            "originalPath": "scripts/lib/headlessFirefox.mjs",
+            "path": "src/headlessFirefox.mjs",
+            "object": "4020466bdbac5307c7c4a2c4bdf62b8447f7b372",
+            "mode": "100644",
+            "sha256": "f64f7c1323cd6e6e5614209a5df5c3d17db1201fe92d917f01dc1b59fd5998c9",
+            "sizeBytes": 5631
+          },
+          {
+            "originalPath": "scripts/lib/headlessPage.mjs",
+            "path": "src/headlessPage.mjs",
+            "object": "9a6fe95d522fdd982e3e6cf6e7aa42e52cb7d21c",
+            "mode": "100644",
+            "sha256": "dffb6d5bddad23fb9c6576d296121a586334ca1883c9a96c53fb961281251f1e",
+            "sizeBytes": 5377
+          }
+        ]
+      },
+      {
+        "originalRevision": "8711a26dd34292dba6a253e6288bfd850e4fe3d8",
+        "extractedRevision": "a94381915c8fb0a0e751ee4d78a2a317f4a8255c",
+        "originalParents": [
+          "73fb3c8c6f4ebba09e31fe95872749a1ed458052"
+        ],
+        "extractedParents": [
+          "d742f26c878faa1c7459171f32ce8a1857cbbed4"
+        ],
+        "tree": "7067256bc74a16e76f1c22dbb86de12077eaf267",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "b5bd414e7272a38c647267687cab6d18b060a6b6",
+            "mode": "100644",
+            "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+            "sizeBytes": 4374
+          },
+          {
+            "originalPath": "scripts/lib/headlessFirefox.mjs",
+            "path": "src/headlessFirefox.mjs",
+            "object": "4020466bdbac5307c7c4a2c4bdf62b8447f7b372",
+            "mode": "100644",
+            "sha256": "f64f7c1323cd6e6e5614209a5df5c3d17db1201fe92d917f01dc1b59fd5998c9",
+            "sizeBytes": 5631
+          },
+          {
+            "originalPath": "scripts/lib/headlessPage.mjs",
+            "path": "src/headlessPage.mjs",
+            "object": "039f64cbad41ad7e41b742625139db8847facd36",
+            "mode": "100644",
+            "sha256": "43d1936ab539b678f5d1bd9003237a8d2baa1034452f54469bbcff2c7e1fc922",
+            "sizeBytes": 8220
+          }
+        ]
+      },
+      {
+        "originalRevision": "b1af260cfc7e4730777fd080a8bf815d877d4e95",
+        "extractedRevision": "e9a2e3803f9869dea43217f8e72c41b329c8003c",
+        "originalParents": [
+          "8711a26dd34292dba6a253e6288bfd850e4fe3d8"
+        ],
+        "extractedParents": [
+          "a94381915c8fb0a0e751ee4d78a2a317f4a8255c"
+        ],
+        "tree": "160a1b7b3b3629a62e5cb25d01f896450836e53a",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "b5bd414e7272a38c647267687cab6d18b060a6b6",
+            "mode": "100644",
+            "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+            "sizeBytes": 4374
+          },
+          {
+            "originalPath": "scripts/lib/headlessFirefox.mjs",
+            "path": "src/headlessFirefox.mjs",
+            "object": "4020466bdbac5307c7c4a2c4bdf62b8447f7b372",
+            "mode": "100644",
+            "sha256": "f64f7c1323cd6e6e5614209a5df5c3d17db1201fe92d917f01dc1b59fd5998c9",
+            "sizeBytes": 5631
+          },
+          {
+            "originalPath": "scripts/lib/headlessPage.mjs",
+            "path": "src/headlessPage.mjs",
+            "object": "ea99f1e5d1c28a826024c9b688100d3faee85c67",
+            "mode": "100644",
+            "sha256": "c79f8451b60f9994d3c25b0dc30ff8538178dc69d75c0697fe72cb4ff06de897",
+            "sizeBytes": 8395
+          }
+        ]
+      },
+      {
+        "originalRevision": "718993c6d928283d7850055ee403d61d854e161d",
+        "extractedRevision": "2757c7fc57677c21c2c32b8dd2483742613f0e47",
+        "originalParents": [
+          "35ad0e3f8037b350f0dedc2a0553a2fbf3c0084a"
+        ],
+        "extractedParents": [
+          "e9a2e3803f9869dea43217f8e72c41b329c8003c"
+        ],
+        "tree": "d3c1973886a5d1020308c7d18100118f39c0199a",
+        "humanIdentityAndDatesPreserved": true,
+        "messagePreserved": true,
+        "files": [
+          {
+            "originalPath": "scripts/lib/headlessChrome.mjs",
+            "path": "src/headlessChrome.mjs",
+            "object": "b5bd414e7272a38c647267687cab6d18b060a6b6",
+            "mode": "100644",
+            "sha256": "147a26b1344861f20c53ca2c809cb0c058759cf5c5a13bdb90ecc5486a63a12c",
+            "sizeBytes": 4374
+          },
+          {
+            "originalPath": "scripts/lib/headlessFirefox.mjs",
+            "path": "src/headlessFirefox.mjs",
+            "object": "4020466bdbac5307c7c4a2c4bdf62b8447f7b372",
+            "mode": "100644",
+            "sha256": "f64f7c1323cd6e6e5614209a5df5c3d17db1201fe92d917f01dc1b59fd5998c9",
+            "sizeBytes": 5631
+          },
+          {
+            "originalPath": "scripts/lib/headlessPage.mjs",
+            "path": "src/headlessPage.mjs",
+            "object": "60a8d05f9c4183f3feaf66447d577492086be114",
+            "mode": "100644",
+            "sha256": "6f132ceac9dae212aa665a19d579a8805a28ce5f51c5e2060ad55e283b12ba45",
+            "sizeBytes": 10513
+          }
+        ]
+      }
+    ],
+    "originalsPreserved": true,
+    "newEmptyHistoryCountsAsPreservation": false,
+    "destinationAttach": {
+      "evidenceId": "history-adoption-20261010/receipt.json",
+      "sha256": "a8a5a871008bb5cc525dea2842f81172fa7bd9d63b2f9d4adb2e878d7f4173c4",
+      "working103FilesUnchanged": true,
+      "indexUnchanged": true
+    },
+    "approval": {
+      "evidenceId": "earth-history-approval.json",
+      "sha256": "8f12d9029a50bd6e66f103ceefc43072a76b6ded686463d2b423210a267ee98f",
+      "canonicalPolicySha256": "cdcda3c5d2968fe115e61627fca95ec744637de533750f1ee680c2a5ede49606",
+      "auditedHistoricalCommits": 6,
+      "auditedHistoricalTags": 0,
+      "restoreVerified": true
+    },
+    "mappingSha256": "db2c4e802515a66ec85ca66dfc77ef58ed15338c15a7909eaa812ac7fcc31f3f"
+  }
+}

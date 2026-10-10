@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "owner": "foss-earth/browser-testing",
+  "state": "Additive fixture/metadata repair candidate; reviewed human history attached; complete CI/package/browser qualification pending",
+  "sourceVersion": "0.1.0 DRAFT",
+  "currentSourceManifest": {
+    "evidenceId": "helper-source-files-r3.json",
+    "sha256": "7289a6a4b011847270ca8350f01438282341801855452f90c24b4a679ff8a906",
+    "fileCount": 36
+  },
+  "provenanceSha256": "481e772e723bf69f38694dc620db81f222a830091ebfd46eeeef57840b7e2379",
+  "publicExports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./core": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./chrome": {
+      "types": "./src/headlessChrome.d.ts",
+      "import": "./src/headlessChrome.mjs"
+    },
+    "./firefox": {
+      "types": "./src/headlessFirefox.d.ts",
+      "import": "./src/headlessFirefox.mjs"
+    },
+    "./page": {
+      "types": "./src/headlessPage.d.ts",
+      "import": "./src/headlessPage.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "currentSharedCi": {
+    "revision": "1db73d1ddb342e348a2c9e8387f7bbc7ebb3225e",
+    "artifactSha256": "bd884d925b8a7339b15fa61a477cf652bb73d41cc68addf50a050ab6cb151611",
+    "policySha256": "cdcda3c5d2968fe115e61627fca95ec744637de533750f1ee680c2a5ede49606",
+    "descriptorSha256": "d60ee5067185a768f0890da2ed87d82dbfa08f28282e4d05a35e823c70307122",
+    "callerSha256": "b9fdfbf4bd61ed727abaef4fd9990b92714a6d2c1388feec600dc16337436b2c",
+    "configSha256": "f4be8310bb514e13808115779d13d130ac3bbed54e4fca9de6af00602da8d994",
+    "common19CasesExecuted": true,
+    "fullIntendedRefsAudited": false,
+    "remoteAdmissionVerified": false,
+    "common19CasesScope": "Original immutable103-file attempt before the prepared fixture/metadata overlay; repaired candidate not executed"
+  },
+  "originalsPreserved": true,
+  "humanHistory": "Six reviewed original path-changing commits attached at2757c7fc57677c21c2c32b8dd2483742613f0e47; original human identities and blobs preserved; extracted IDs/parents/paths differ",
+  "executedChecks": [
+    {
+      "scope": "Original immutable103-file candidate before fixture/metadata repair",
+      "finishedCI": "FAILED",
+      "logId": "02-shared-finished-ci.log",
+      "logSha256": "dc47b1be8223aaaef507364b3bceb4e284902fa6df8d081b6e5d3ccb47eb1d2d",
+      "conformanceCases": 19,
+      "conformance": "PASS",
+      "source": "PASS",
+      "publicDeclarations": "PASS",
+      "tests": {
+        "total": 32,
+        "reportedPass": 30,
+        "reportedFail": 2,
+        "negativeFirefoxScenarioQualification": "Not established when sandbox prevented localhost bind"
+      },
+      "candidateRepairExecuted": false
+    }
+  ],
+  "browserToolsBundled": false,
+  "limitations": [
+    "WebKit engine is not mobile Safari or WebGPU proof",
+    "Interception cannot substitute for named live worker behavior",
+    "Actual browser/backend/GPU evidence remains unobserved",
+    "New shared release/adoption pins must be measured by qualified producers, never invented",
+    "Fixture transport/event guards and metadata repair remain unexecuted; original failed attempt preserved; requires approved host loopback/process access"
+  ]
+}

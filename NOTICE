@@ -1,0 +1,7 @@
+FOSS Earth source code is licensed under GNU Affero General Public License version 3.0 only; see LICENSE.
+
+The project may also offer separately negotiated commercial terms to copyright holders' customers. Those terms do not modify the AGPL grant.
+
+Third-party packages, map and terrain data, online services, and trademarks have their own notices and terms.
+
+Shared browser-testing extracts only generic helper code from the preserved FOSS Earth source and the compatible 0SFS Chrome lifecycle extension. Original source notices and human lineage remain recorded in SOURCE_PROVENANCE.json. No map, model, image, browser binary or third-party automation implementation is bundled.

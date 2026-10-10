@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "owner": "foss-earth/browser-testing",
-  "state": "Additive fixture/metadata repair candidate; reviewed human history attached; complete CI/package/browser qualification pending",
+  "state": "Installed-consumer caller repair candidate; prior helper tests/ref audit passed at fb478748; new artifact consumer and real browser qualification pending",
   "sourceVersion": "0.1.0 DRAFT",
   "currentSourceManifest": {
-    "evidenceId": "helper-source-files-r3.json",
-    "sha256": "7289a6a4b011847270ca8350f01438282341801855452f90c24b4a679ff8a906",
+    "evidenceId": "helper-source-files-r4.json",
+    "sha256": "7c27d2eaac3e0fe47a782a64bd53b74310054334364d169851b68c9c250eaf92",
     "fileCount": 36
   },
   "provenanceSha256": "481e772e723bf69f38694dc620db81f222a830091ebfd46eeeef57840b7e2379",
@@ -42,7 +42,7 @@
     "common19CasesExecuted": true,
     "fullIntendedRefsAudited": false,
     "remoteAdmissionVerified": false,
-    "common19CasesScope": "Original immutable103-file attempt before the prepared fixture/metadata overlay; repaired candidate not executed"
+    "common19CasesScope": "Completed fixture-repaired fb478748c7d488ea0ee0f6757fd69c81f68da952 candidate before this caller-only repair; fresh installed artifact conformance pending"
   },
   "originalsPreserved": true,
   "humanHistory": "Six reviewed original path-changing commits attached at2757c7fc57677c21c2c32b8dd2483742613f0e47; original human identities and blobs preserved; extracted IDs/parents/paths differ",
@@ -63,6 +63,32 @@
         "negativeFirefoxScenarioQualification": "Not established when sandbox prevented localhost bind"
       },
       "candidateRepairExecuted": false
+    },
+    {
+      "scope": "fb478748c7d488ea0ee0f6757fd69c81f68da952 before the installed-consumer caller repair",
+      "finishedCI": "PASS",
+      "logId": "02-repaired-shared-finished-ci.log",
+      "logSha256": "e8462518313cb9ceb4408a7909b4f39142891e111b712e84b8c7056a5bcdbc43",
+      "conformanceCases": 19,
+      "conformance": "PASS",
+      "source": "PASS",
+      "publicDeclarations": "PASS",
+      "tests": {
+        "total": 32,
+        "pass": 32,
+        "fail": 0,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "fullIntendedRefAudit": {
+        "complete": true,
+        "clean": true,
+        "revision": "fb478748c7d488ea0ee0f6757fd69c81f68da952",
+        "reachableCommits": 7,
+        "annotatedTags": 0
+      },
+      "installedConsumer": "FAILED at fixture output-root guard before its19cases; original receipts preserved",
+      "currentCallerRepairExecuted": false
     }
   ],
   "browserToolsBundled": false,
@@ -71,6 +97,6 @@
     "Interception cannot substitute for named live worker behavior",
     "Actual browser/backend/GPU evidence remains unobserved",
     "New shared release/adoption pins must be measured by qualified producers, never invented",
-    "Fixture transport/event guards and metadata repair remain unexecuted; original failed attempt preserved; requires approved host loopback/process access"
+    "Installed-consumer output-root repair remains unexecuted until its separately measured candidate and fresh consumer; prior failed workspace/archives retained"
   ]
 }

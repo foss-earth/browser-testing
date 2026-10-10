@@ -87,7 +87,7 @@ await run([process.execPath, '--experimental-loader', './guard.mjs', './consumer
 await run([process.execPath, 'node_modules/typescript/bin/tsc', '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2023', '--skipLibCheck', 'false', 'public.ts'], 'strict-public-types');
 await mkdir(path.join(workspace, '.github/workflows'), { recursive: true });
 for (const file of ['.attribution.json', '.attribution-release.json', '.github/workflows/attribution-check.yml']) await copyFile(path.join(installed, file), path.join(workspace, file));
-await run([process.execPath, 'node_modules/@foss-earth/ci/bin/conformance.mjs', '--consumer', workspace, '--trusted-release', path.join(workspace, '.attribution-release.json'), '--output-root', path.join(output, 'common-conformance')], 'installed-common-19cases');
+await run([process.execPath, 'node_modules/@foss-earth/ci/bin/conformance.mjs', '--consumer', workspace, '--trusted-release', path.join(workspace, '.attribution-release.json'), '--output-root', path.join(workspace, 'build', 'common-conformance')], 'installed-common-19cases');
 const record = { schemaVersion: 1, status: 'passed', releaseRevision: release.revision, archiveSha256: release.sha256, inputs, installedPath: installed, installedFileCount: Object.keys(release.files).length, publicExports: release.exports, commands, browserAccepted: false };
 await writeFile(path.join(output, 'receipt.json'), JSON.stringify(record, null, 2) + '\n');
 console.log(JSON.stringify({ passed: true, receipt: path.join(output, 'receipt.json'), browserAccepted: false }));

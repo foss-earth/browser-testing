@@ -8,6 +8,76 @@ import { createEvidence, sanitizeText } from "./evidence.mjs";
 
 const CHECK_NAME = "foss-earth-browser-testing/0.1";
 
+// A finite control vocabulary; text entry and arbitrary protocol input remain outside this port.
+const CONTROL_KEYS = Object.freeze({
+  Tab: { key: "Tab", code: "Tab", virtualKey: 9, bidi: "\uE004" },
+  ShiftTab: { key: "Tab", code: "Tab", virtualKey: 9, bidi: "\uE004", shift: true },
+  Enter: { key: "Enter", code: "Enter", virtualKey: 13, bidi: "\uE007", text: "\r" },
+  Space: { key: " ", code: "Space", virtualKey: 32, bidi: " ", text: " " },
+  Escape: { key: "Escape", code: "Escape", virtualKey: 27, bidi: "\uE00C" },
+  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", virtualKey: 37, bidi: "\uE012" },
+  ArrowUp: { key: "ArrowUp", code: "ArrowUp", virtualKey: 38, bidi: "\uE013" },
+  ArrowRight: { key: "ArrowRight", code: "ArrowRight", virtualKey: 39, bidi: "\uE014" },
+  ArrowDown: { key: "ArrowDown", code: "ArrowDown", virtualKey: 40, bidi: "\uE015" },
+  Home: { key: "Home", code: "Home", virtualKey: 36, bidi: "\uE011" },
+  End: { key: "End", code: "End", virtualKey: 35, bidi: "\uE010" },
+  PageUp: { key: "PageUp", code: "PageUp", virtualKey: 33, bidi: "\uE00E" },
+  PageDown: { key: "PageDown", code: "PageDown", virtualKey: 34, bidi: "\uE00F" },
+});
+
+function inputQueue(evidence) {
+  let pending = Promise.resolve();
+  return (kind, control, dispatch) => {
+    const next = pending.then(dispatch).catch(error => {
+      evidence.add("lifecycle", { event: `${kind}-error` });
+      evidence.add("console", { level: "error", text: `Native ${kind} ${control} failed: ${error.message}` });
+      throw error;
+    });
+    pending = next.catch(() => {});
+    return next;
+  };
+}
+
+function queuedKeyPress(dispatch, enqueue) {
+  return key => typeof key !== "string" || !Object.hasOwn(CONTROL_KEYS, key)
+    ? Promise.reject(new Error("Unsupported control key"))
+    : enqueue("keyboard", key, () => dispatch(CONTROL_KEYS[key]));
+}
+
+function pointerPorts(width, height, enqueue, click, drag) {
+  function point(x, y) {
+    if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x >= width || y < 0 || y >= height) throw new Error("Finite pointer coordinates within the page viewport required");
+    return { x: Math.min(width - 1, Math.round(x)), y: Math.min(height - 1, Math.round(y)) };
+  }
+  return {
+    async clickAt(x, y) {
+      const position = point(x, y);
+      return enqueue("pointer", "click", () => click(position));
+    },
+    async dragAt(fromX, fromY, toX, toY, options = {}) {
+      const from = point(fromX, fromY), to = point(toX, toY);
+      if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["steps", "durationMs"].includes(key))) throw new Error("Only bounded pointer steps and duration are accepted");
+      const { steps = 5, durationMs = 250 } = options;
+      if (!Number.isSafeInteger(steps) || steps < 1 || steps > 20 || !Number.isSafeInteger(durationMs) || durationMs < 0 || durationMs > 1000) throw new Error("Pointer drag requires 1..20 steps and 0..1000 integer milliseconds");
+      const moves = Array.from({ length: steps }, (_, index) => ({ x: Math.round(from.x + (to.x - from.x) * (index + 1) / steps),
+        y: Math.round(from.y + (to.y - from.y) * (index + 1) / steps), durationMs: Math.round(durationMs * (index + 1) / steps) - Math.round(durationMs * index / steps) }));
+      return enqueue("pointer", "drag", () => drag(from, to, moves));
+    },
+  };
+}
+
+const pointerPause = duration => duration ? new Promise(resolve => setTimeout(resolve, duration)) : Promise.resolve();
+
+async function withKeyRelease(down, up) {
+  let failure;
+  try { await down(); } catch (error) { failure = error; }
+  try { await up(); } catch (error) {
+    if (failure) throw new AggregateError([failure, error], "Native key dispatch and release failed");
+    throw error;
+  }
+  if (failure) throw failure;
+}
+
 /** Preserve the original page protocol API; explicit live mode does not intercept requests. */
 export async function openHeadlessPage(browser, profileDirectory, options) {
   if (!options || typeof options !== "object") throw new Error("Page options are required");
@@ -66,9 +136,35 @@ async function chromePage(profileDirectory, { respond, mode, width, height, bina
     await send("Emulation.setUserAgentOverride", { userAgent: `${version.userAgent} ${CHECK_NAME}` });
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     const facts = { browser: "chrome", mode, workers, pid: chrome.pid, engineVersion: sanitizeText(version.product, 200) };
+    const enqueue = inputQueue(evidence);
+    const pressKey = queuedKeyPress(async spec => {
+      const modifiers = spec.shift ? 8 : 0;
+      const key = { key: spec.key, code: spec.code, windowsVirtualKeyCode: spec.virtualKey, modifiers };
+      const main = () => withKeyRelease(
+        () => send("Input.dispatchKeyEvent", { type: spec.text == null ? "rawKeyDown" : "keyDown", ...key,
+          ...(spec.text == null ? {} : { text: spec.text, unmodifiedText: spec.text }) }),
+        () => send("Input.dispatchKeyEvent", { type: "keyUp", ...key }));
+      if (!spec.shift) return main();
+      const shift = { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
+      await withKeyRelease(async () => { await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...shift, modifiers: 8 }); await main(); },
+        () => send("Input.dispatchKeyEvent", { type: "keyUp", ...shift, modifiers: 0 }));
+    }, enqueue);
+    const pointer = pointerPorts(width, height, enqueue,
+      position => withKeyRelease(async () => {
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position, buttons: 0 });
+        await send("Input.dispatchMouseEvent", { type: "mousePressed", ...position, button: "left", buttons: 1, clickCount: 1 });
+      }, () => send("Input.dispatchMouseEvent", { type: "mouseReleased", ...position, button: "left", buttons: 0, clickCount: 1 })),
+      (from, to, moves) => withKeyRelease(async () => {
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...from, buttons: 0 });
+        await send("Input.dispatchMouseEvent", { type: "mousePressed", ...from, button: "left", buttons: 1, clickCount: 1 });
+        for (const { durationMs, ...position } of moves) {
+          await pointerPause(durationMs);
+          await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position, button: "left", buttons: 1 });
+        }
+      }, () => send("Input.dispatchMouseEvent", { type: "mouseReleased", ...to, button: "left", buttons: 0, clickCount: 1 })));
     let closed;
     return {
-      product: version.product, facts,
+      product: version.product, facts, pressKey, ...pointer,
       navigate: url => send("Page.navigate", { url: String(url) }),
       evaluate: expression => evaluate(chrome, sessionId, expression),
       async screenshot() { return Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"); },
@@ -122,8 +218,23 @@ async function firefoxPage(profileDirectory, { respond, mode, width, height, bin
     await firefox.send("browsingContext.setViewport", { context, viewport: { width, height }, devicePixelRatio: 1 });
     const product = /Firefox\/[\d.]+/.exec(userAgent)?.[0] ?? "Firefox";
     const facts = { browser: "firefox", mode, workers, pid: firefox.pid, engineVersion: sanitizeText(firefox.session?.capabilities?.browserVersion ?? product, 200) };
+    const enqueue = inputQueue(evidence);
+    const pressKey = queuedKeyPress(spec => withKeyRelease(
+      () => firefox.send("input.performActions", { context, actions: [{ type: "key", id: "keyboard", actions: [
+        ...(spec.shift ? [{ type: "keyDown", value: "\uE008" }] : []),
+        { type: "keyDown", value: spec.bidi }, { type: "keyUp", value: spec.bidi },
+        ...(spec.shift ? [{ type: "keyUp", value: "\uE008" }] : []),
+      ] }] }),
+      () => firefox.send("input.releaseActions", { context })), enqueue);
+    const pointerActions = actions => withKeyRelease(
+      () => firefox.send("input.performActions", { context, actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] }),
+      () => firefox.send("input.releaseActions", { context }));
+    const move = (position, duration = 0) => ({ type: "pointerMove", origin: "viewport", x: position.x, y: position.y, duration });
+    const pointer = pointerPorts(width, height, enqueue,
+      position => pointerActions([move(position), { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }]),
+      (from, _to, moves) => pointerActions([move(from), { type: "pointerDown", button: 0 }, ...moves.map(position => move(position, position.durationMs)), { type: "pointerUp", button: 0 }]));
     return {
-      product, facts,
+      product, facts, pressKey, ...pointer,
       navigate: url => firefox.send("browsingContext.navigate", { context, url: String(url), wait: "none" }),
       evaluate: expression => firefox.evaluate(context, expression),
       async screenshot() { return Buffer.from((await firefox.send("browsingContext.captureScreenshot", { context, origin: "viewport" })).data, "base64"); },
@@ -196,8 +307,25 @@ async function webkitPage(profileDirectory, { respond, mode, width, height, work
     const product = `WebKit ${/Version\/([\d.]+)/.exec(userAgent)?.[1] ?? instance.version()} (engine ${instance.version()})`;
     const facts = { browser: "webkit", mode, workers, engineVersion: instance.version(), toolVersions: tool.toolVersions,
       webkitRevision: tool.webkitRevision, pid: owned.pid, transportOrigin: owned.transportOrigin, persistentProfile: false };
+    const enqueue = inputQueue(evidence);
+    const pressKey = queuedKeyPress(async spec => {
+      const down = key => bounded(page.keyboard.down(key), timeouts.commandMs, "WebKit key down timed out");
+      const up = key => bounded(page.keyboard.up(key), timeouts.commandMs, "WebKit key release timed out");
+      const main = () => withKeyRelease(() => down(spec.code), () => up(spec.code));
+      if (!spec.shift) return main();
+      await withKeyRelease(async () => { await down("Shift"); await main(); }, () => up("Shift"));
+    }, enqueue);
+    const mouseMove = position => bounded(page.mouse.move(position.x, position.y, { steps: 1 }), timeouts.commandMs, "WebKit pointer move timed out");
+    const mouseDown = () => bounded(page.mouse.down({ button: "left" }), timeouts.commandMs, "WebKit pointer down timed out");
+    const mouseUp = () => bounded(page.mouse.up({ button: "left" }), timeouts.commandMs, "WebKit pointer release timed out");
+    const pointer = pointerPorts(width, height, enqueue,
+      position => withKeyRelease(async () => { await mouseMove(position); await mouseDown(); }, mouseUp),
+      (from, _to, moves) => withKeyRelease(async () => {
+        await mouseMove(from); await mouseDown();
+        for (const position of moves) { await pointerPause(position.durationMs); await mouseMove(position); }
+      }, mouseUp));
     return {
-      product, facts,
+      product, facts, pressKey, ...pointer,
       navigate: url => page.goto(String(url), { waitUntil: "commit", timeout: timeouts.commandMs }),
       evaluate: expression => bounded(page.evaluate(code => (0, eval)(code), expression), timeouts.commandMs, "WebKit evaluation timed out"),
       screenshot: () => page.screenshot({ type: "png", timeout: timeouts.commandMs }),

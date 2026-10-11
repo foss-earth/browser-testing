@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native pointer fixture</title>
+<style>
+  #click { position: absolute; left: 20px; top: 20px; width: 120px; height: 40px; }
+  #drag { position: absolute; left: 30px; top: 100px; width: 120px; height: 100px; background: #abcdef; touch-action: none; user-select: none; }
+</style>
+<button id="click">Native click</button>
+<div id="drag">Native drag</div>
+<script>
+  window.pointerFixture = { clicks: [], events: [] };
+  const button = document.getElementById("click"), draggable = document.getElementById("drag");
+  button.addEventListener("click", event => pointerFixture.clicks.push({ trusted: event.isTrusted, x: event.clientX, y: event.clientY }));
+  draggable.addEventListener("pointerdown", event => draggable.setPointerCapture(event.pointerId));
+  for (const type of ["pointerdown", "pointermove", "pointerup"]) {
+    document.addEventListener(type, event => pointerFixture.events.push({ type, target: event.target.id, trusted: event.isTrusted,
+      button: event.button, buttons: event.buttons, x: event.clientX, y: event.clientY }));
+  }
+</script>

@@ -17,20 +17,27 @@ async function fakePage(browser, fail = false) {
   const directory = await mkdtemp(path.join(retained, `${browser}-`));
   const profile = path.join(directory, "profile");
   await mkdir(profile);
-  await writeFile(path.join(profile, "fake-config.json"), JSON.stringify({ mode: fail ? "key-down-error" : "normal" }));
+  await writeFile(path.join(profile, "fake-config.json"), JSON.stringify({ mode: typeof fail === "string" ? fail : fail ? "key-down-error" : "normal" }));
   // Private fixture variant records protocol payloads and injects a first-key failure.
   let source = await readFile(path.join(root, "fixtures", "protocol", "fake-browser.mjs"), "utf8");
   source = source.replace('record("command", { method: message.method });', 'record("command", { method: message.method, params: message.params });');
   source = source.replace("  let result = {};", `  if (config.mode === "key-down-error" && (message.method === "input.performActions" || (message.method === "Input.dispatchKeyEvent" && message.params.type !== "keyUp" && message.params.key !== "Shift"))) {
     reply({ id: message.id, ...(chromeProfile ? { error: { message: "fixture key-down failure" } } : { type: "error", error: "fixture", message: "fixture key-down failure" }) }); return;
   }
+  if (config.mode === "context-activation-error" && message.method === "browsingContext.activate") {
+    reply({ id: message.id, type: "error", error: "fixture", message: "fixture context activation failure" }); return;
+  }
   let result = {};`);
   const script = path.join(directory, "fake-keyboard.mjs");
   await writeFile(script, source);
   const binary = path.join(directory, "fake-browser");
   await writeFile(binary, "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(script) + " \"$@\"\n", { mode: 0o755 });
-  const page = await openHeadlessPage(browser, profile, { mode: "live", binary, width: 640, height: 480, timeouts: times });
-  return { page, async events() { return (await readFile(path.join(profile, "fake-events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)); } };
+  let setupError;
+  const page = await openHeadlessPage(browser, profile, { mode: "live", binary, width: 640, height: 480, timeouts: times }).catch(error => {
+    if (fail !== "context-activation-error") throw error;
+    setupError = error;
+  });
+  return { page, setupError, async events() { return (await readFile(path.join(profile, "fake-events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)); } };
 }
 
 for (const browser of ["chrome", "firefox"]) {
@@ -52,6 +59,13 @@ for (const browser of ["chrome", "firefox"]) {
       assert.deepEqual([space.key, space.windowsVirtualKeyCode, space.text, space.unmodifiedText], [" ", 32, " ", " "]);
       assert(input.some(event => event.key === "Enter" && event.text === "\r" && event.windowsVirtualKeyCode === 13));
     } else {
+      const activate = commands.filter(event => event.method === "browsingContext.activate");
+      assert.equal(activate.length, 1);
+      assert.deepEqual(activate[0].params, { context: "context" });
+      const activationIndex = commands.indexOf(activate[0]);
+      assert(activationIndex > commands.findIndex(event => event.method === "browsingContext.getTree"));
+      assert(activationIndex < commands.findIndex(event => event.method === "script.evaluate"));
+      assert(activationIndex < commands.findIndex(event => event.method === "input.performActions"));
       const input = commands.filter(event => ["input.performActions", "input.releaseActions"].includes(event.method));
       assert.equal(input.filter(event => event.method === "input.releaseActions").length, keys.length);
       assert.deepEqual(input[2].params.actions[0].actions.map(action => action.value), ["\uE008", "\uE004", "\uE004", "\uE008"]);
@@ -78,6 +92,18 @@ for (const browser of ["chrome", "firefox"]) {
   });
 }
 
+test("Firefox failed native context activation closes the owned browser before any input", async () => {
+  const { page, setupError, events } = await fakePage("firefox", "context-activation-error");
+  assert.equal(page, undefined); assert.match(setupError?.message ?? "", /fixture context activation failure/);
+  const recorded = await events(), commands = recorded.filter(event => event.event === "command");
+  assert.deepEqual(commands.filter(event => event.method === "browsingContext.activate").map(event => event.params), [{ context: "context" }]);
+  assert(!commands.some(event => ["input.performActions", "input.releaseActions"].includes(event.method)));
+  assert(commands.some(event => event.method === "browser.close"));
+  assert(recorded.some(event => event.event === "close")); assert(!recorded.some(event => event.event === "signal"));
+  const pid = recorded.find(event => event.event === "spawn")?.pid; assert(Number.isSafeInteger(pid));
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+});
+
 async function waitFor(page, expression) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
@@ -103,6 +129,7 @@ test("explicit existing native browser proves trusted focus and default button a
       timeouts: { startupMs: 10000, commandMs: 3000, closeMs: 3000, exitMs: 3000 } });
     await page.navigate(`http://127.0.0.1:${server.address().port}/keyboard.html`);
     await waitFor(page, "Boolean(window.keyboardFixture && document.activeElement.id === 'first')");
+    assert.equal(await page.evaluate("document.hasFocus()"), true, "Native keyboard document must have focus for default activation");
     await page.pressKey("Tab");
     await waitFor(page, "document.activeElement.id === 'second'");
     await page.pressKey("ShiftTab");

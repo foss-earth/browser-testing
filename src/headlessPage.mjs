@@ -190,6 +190,8 @@ async function firefoxPage(profileDirectory, { respond, mode, width, height, bin
   const firefox = await openHeadlessFirefox(profileDirectory, binary, firefoxPrefs, { timeouts, onLifecycle: value => evidence.add("lifecycle", value) });
   try {
     const context = await firefox.context();
+    // BiDi action dispatch does not activate its target; native default actions need window focus.
+    await firefox.send("browsingContext.activate", { context });
     const userAgent = await firefox.evaluate(context, "navigator.userAgent");
     firefox.onEvent(message => {
       const data = message.params ?? {};

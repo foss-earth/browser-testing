@@ -75,5 +75,5 @@ Original helper inputs and human commits are recorded in
 tooling, caches and evidence remain intact. [SOURCE_RECEIPT.json](SOURCE_RECEIPT.json)
 describes the frozen candidate; the private handoff binds exact requests/logs.
 
-[Code of Conduct](CODE_OF_CONDUCT.md) · [Contributing](CONTRIBUTING.md) ·
-[License](LICENSE) · [Security](SECURITY.md) · [Notices](NOTICE)
+[Code of Conduct](https://github.com/foss-earth/.github/blob/main/CODE_OF_CONDUCT.md) · [Contributing](https://github.com/foss-earth/.github/blob/main/CONTRIBUTING.md) ·
+[License](LICENSE) · [Security](https://github.com/foss-earth/.github/blob/main/SECURITY.md) · [Notices](NOTICE)

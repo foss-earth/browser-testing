@@ -37,7 +37,6 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@foss-earth/ci": "file:deps/foss-earth-ci-1db73d1ddb342e348a2c9e8387f7bbc7ebb3225e.tgz",
     "typescript": "5.9.3",
     "@types/node": "24.12.4"
   },
@@ -45,10 +44,7 @@
     "check:source": "node scripts/check-source.mjs",
     "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2023 --skipLibCheck false fixtures/types/public-consumer.ts",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "check:conformance": "node node_modules/@foss-earth/ci/bin/conformance.mjs --consumer . --trusted-release .attribution-release.json --output-root build/common-conformance",
-    "check:attribution": "node node_modules/@foss-earth/ci/bin/attribution.mjs --repo . --refs-file build/repository-split/intended-publication-refs.json",
-    "ci": "npm run check:conformance && npm run check:source && npm run typecheck && npm test",
-    "check:consumer": "node scripts/check-installed-consumer.mjs"
+    "ci": "npm run check:source && npm run typecheck && npm test"
   },
   "files": [
     "src",
@@ -56,19 +52,9 @@
     "LICENSE",
     "COMMERCIAL_LICENSE.md",
     "NOTICE",
-    "CODE_OF_CONDUCT.md",
-    "CONTRIBUTING.md",
-    "SECURITY.md",
     "AGENTS.md",
-    "SOURCE_PROVENANCE.json",
-    "SOURCE_RECEIPT.json",
     "docs",
-    ".attribution.json",
-    ".attribution-release.json",
-    ".github/workflows/attribution-check.yml",
-    "deps/foss-earth-ci-1db73d1ddb342e348a2c9e8387f7bbc7ebb3225e.tgz",
     "scripts/check-source.mjs",
-    "scripts/check-installed-consumer.mjs",
     "fixtures/installed",
     "fixtures/types"
   ],

@@ -50,6 +50,7 @@ function command(message, reply) {
   if (message.method === "Page.captureScreenshot") result = { data: png };
   if (message.method === "session.new") result = { sessionId: "session", capabilities: { browserVersion: "fixture" } };
   if (message.method === "browsingContext.getTree") result = { contexts: [{ context: "context" }] };
+  if (message.method === "browsingContext.create") result = { context: "foreground-context" };
   if (message.method === "script.evaluate") result = { type: "success", result: { type: "string", value: JSON.stringify(message.params.expression.includes("navigator.userAgent") ? "Firefox/fixture" : true) } };
   if (message.method === "browsingContext.captureScreenshot") result = { data: png };
   reply({ id: message.id, ...(chromeProfile ? { result } : { type: "success", result }) });

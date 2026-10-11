@@ -189,8 +189,12 @@ async function chromePage(profileDirectory, { respond, mode, width, height, bina
 async function firefoxPage(profileDirectory, { respond, mode, width, height, binary, firefoxPrefs = {}, workers = false, timeouts, evidence }) {
   const firefox = await openHeadlessFirefox(profileDirectory, binary, firefoxPrefs, { timeouts, onLifecycle: value => evidence.add("lifecycle", value) });
   try {
-    const context = await firefox.context();
-    // BiDi action dispatch does not activate its target; native default actions need window focus.
+    const startupContext = await firefox.context();
+    // A real foreground tab establishes native content focus; the startup tab can remain unfocused.
+    const created = await firefox.send("browsingContext.create", { type: "tab", background: false, referenceContext: startupContext });
+    const context = created?.context;
+    if (typeof context !== "string" || !context || context === startupContext) throw new Error("Firefox foreground context creation returned an invalid owned context");
+    // Keep the returned context for all setup, navigation and native input; tree order is not ownership.
     await firefox.send("browsingContext.activate", { context });
     const userAgent = await firefox.evaluate(context, "navigator.userAgent");
     firefox.onEvent(message => {

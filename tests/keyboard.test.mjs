@@ -24,17 +24,22 @@ async function fakePage(browser, fail = false) {
   source = source.replace("  let result = {};", `  if (config.mode === "key-down-error" && (message.method === "input.performActions" || (message.method === "Input.dispatchKeyEvent" && message.params.type !== "keyUp" && message.params.key !== "Shift"))) {
     reply({ id: message.id, ...(chromeProfile ? { error: { message: "fixture key-down failure" } } : { type: "error", error: "fixture", message: "fixture key-down failure" }) }); return;
   }
+  if (config.mode === "context-creation-error" && message.method === "browsingContext.create") {
+    reply({ id: message.id, type: "error", error: "fixture", message: "fixture context creation failure" }); return;
+  }
   if (config.mode === "context-activation-error" && message.method === "browsingContext.activate") {
     reply({ id: message.id, type: "error", error: "fixture", message: "fixture context activation failure" }); return;
   }
   let result = {};`);
+  source = source.replace('  if (message.method === "browsingContext.create") result = { context: "foreground-context" };',
+    '  if (message.method === "browsingContext.create") result = config.mode === "context-creation-missing" ? {} : config.mode === "context-creation-reused" ? { context: "context" } : { context: "foreground-context" };');
   const script = path.join(directory, "fake-keyboard.mjs");
   await writeFile(script, source);
   const binary = path.join(directory, "fake-browser");
   await writeFile(binary, "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(script) + " \"$@\"\n", { mode: 0o755 });
   let setupError;
   const page = await openHeadlessPage(browser, profile, { mode: "live", binary, width: 640, height: 480, timeouts: times }).catch(error => {
-    if (fail !== "context-activation-error") throw error;
+    if (!["context-activation-error", "context-creation-error", "context-creation-missing", "context-creation-reused"].includes(fail)) throw error;
     setupError = error;
   });
   return { page, setupError, async events() { return (await readFile(path.join(profile, "fake-events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)); } };
@@ -61,13 +66,18 @@ for (const browser of ["chrome", "firefox"]) {
     } else {
       const activate = commands.filter(event => event.method === "browsingContext.activate");
       assert.equal(activate.length, 1);
-      assert.deepEqual(activate[0].params, { context: "context" });
+      assert.deepEqual(activate[0].params, { context: "foreground-context" });
+      const creation = commands.filter(event => event.method === "browsingContext.create");
+      assert.equal(creation.length, 1);
+      assert.deepEqual(creation[0].params, { type: "tab", background: false, referenceContext: "context" });
+      assert(commands.indexOf(creation[0]) < commands.indexOf(activate[0]));
       const activationIndex = commands.indexOf(activate[0]);
       assert(activationIndex > commands.findIndex(event => event.method === "browsingContext.getTree"));
       assert(activationIndex < commands.findIndex(event => event.method === "script.evaluate"));
       assert(activationIndex < commands.findIndex(event => event.method === "input.performActions"));
       const input = commands.filter(event => ["input.performActions", "input.releaseActions"].includes(event.method));
       assert.equal(input.filter(event => event.method === "input.releaseActions").length, keys.length);
+      assert(input.every(event => event.params.context === "foreground-context"));
       assert.deepEqual(input[2].params.actions[0].actions.map(action => action.value), ["\uE008", "\uE004", "\uE004", "\uE008"]);
       // WebDriver main Enter is U+E006; U+E007 is the distinct keypad Enter.
       assert.deepEqual(input[4].params.actions[0].actions, [{ type: "keyDown", value: "\uE006" }, { type: "keyUp", value: "\uE006" }]);
@@ -96,13 +106,57 @@ test("Firefox failed native context activation closes the owned browser before a
   const { page, setupError, events } = await fakePage("firefox", "context-activation-error");
   assert.equal(page, undefined); assert.match(setupError?.message ?? "", /fixture context activation failure/);
   const recorded = await events(), commands = recorded.filter(event => event.event === "command");
-  assert.deepEqual(commands.filter(event => event.method === "browsingContext.activate").map(event => event.params), [{ context: "context" }]);
+  assert.deepEqual(commands.filter(event => event.method === "browsingContext.activate").map(event => event.params), [{ context: "foreground-context" }]);
   assert(!commands.some(event => ["input.performActions", "input.releaseActions"].includes(event.method)));
   assert(commands.some(event => event.method === "browser.close"));
   assert(recorded.some(event => event.event === "close")); assert(!recorded.some(event => event.event === "signal"));
   const pid = recorded.find(event => event.event === "spawn")?.pid; assert(Number.isSafeInteger(pid));
   assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
 });
+
+test("Firefox returned foreground identity owns setup, navigation, evaluation and native pointer ports", async () => {
+  const { page, events } = await fakePage("firefox");
+  try {
+    await page.navigate("https://fixture.invalid/foreground");
+    await page.evaluate("true");
+    await page.screenshot();
+    await page.pressKey("Enter");
+    await page.touch();
+    await page.clickAt(10, 20);
+    await page.dragAt(10, 20, 30, 40, { steps: 1, durationMs: 0 });
+  } finally { await page.close(); }
+  const recorded = await events(), commands = recorded.filter(event => event.event === "command");
+  assert.equal(commands.filter(event => event.method === "browsingContext.getTree").length, 1, "Never rediscover the startup context by tree order");
+  const created = commands.find(event => event.method === "browsingContext.create");
+  assert.deepEqual(created.params, { type: "tab", background: false, referenceContext: "context" });
+  assert(commands.indexOf(created) > commands.findIndex(event => event.method === "browsingContext.getTree"));
+  const scoped = ["browsingContext.activate", "browsingContext.setViewport", "browsingContext.navigate", "browsingContext.captureScreenshot", "input.performActions", "input.releaseActions"];
+  for (const method of scoped) {
+    const rows = commands.filter(event => event.method === method); assert(rows.length > 0, method);
+    assert(rows.every(event => event.params.context === "foreground-context"), method);
+  }
+  const evaluations = commands.filter(event => event.method === "script.evaluate"); assert(evaluations.length >= 2);
+  assert(evaluations.every(event => event.params.target.context === "foreground-context"));
+  assert.deepEqual(commands.find(event => event.method === "emulation.setUserAgentOverride").params.contexts, ["foreground-context"]);
+  assert(commands.filter(event => event.method === "input.performActions").some(event => event.params.actions[0].type === "pointer"));
+  assert(!recorded.some(event => event.event === "signal"));
+  assert.throws(() => process.kill(page.facts.pid, 0), { code: "ESRCH" });
+});
+
+for (const mode of ["context-creation-error", "context-creation-missing", "context-creation-reused"]) {
+  test(`Firefox ${mode} closes owned browser before setup or native input`, async () => {
+    const { page, setupError, events } = await fakePage("firefox", mode);
+    assert.equal(page, undefined);
+    assert.match(setupError?.message ?? "", mode === "context-creation-error" ? /fixture context creation failure/ : /invalid owned context/);
+    const recorded = await events(), commands = recorded.filter(event => event.event === "command");
+    assert.deepEqual(commands.filter(event => event.method === "browsingContext.create").map(event => event.params), [{ type: "tab", background: false, referenceContext: "context" }]);
+    assert(!commands.some(event => ["browsingContext.activate", "script.evaluate", "browsingContext.setViewport", "input.performActions", "input.releaseActions"].includes(event.method)));
+    assert(commands.some(event => event.method === "browser.close"));
+    assert(recorded.some(event => event.event === "close")); assert(!recorded.some(event => event.event === "signal"));
+    const pid = recorded.find(event => event.event === "spawn")?.pid; assert(Number.isSafeInteger(pid));
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  });
+}
 
 async function waitFor(page, expression) {
   const deadline = Date.now() + 3000;

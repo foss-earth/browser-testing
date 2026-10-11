@@ -12,7 +12,7 @@ const CHECK_NAME = "foss-earth-browser-testing/0.1";
 const CONTROL_KEYS = Object.freeze({
   Tab: { key: "Tab", code: "Tab", virtualKey: 9, bidi: "\uE004" },
   ShiftTab: { key: "Tab", code: "Tab", virtualKey: 9, bidi: "\uE004", shift: true },
-  Enter: { key: "Enter", code: "Enter", virtualKey: 13, bidi: "\uE007", text: "\r" },
+  Enter: { key: "Enter", code: "Enter", virtualKey: 13, bidi: "\uE006", text: "\r" },
   Space: { key: " ", code: "Space", virtualKey: 32, bidi: " ", text: " " },
   Escape: { key: "Escape", code: "Escape", virtualKey: 27, bidi: "\uE00C" },
   ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", virtualKey: 37, bidi: "\uE012" },

@@ -55,6 +55,8 @@ for (const browser of ["chrome", "firefox"]) {
       const input = commands.filter(event => ["input.performActions", "input.releaseActions"].includes(event.method));
       assert.equal(input.filter(event => event.method === "input.releaseActions").length, keys.length);
       assert.deepEqual(input[2].params.actions[0].actions.map(action => action.value), ["\uE008", "\uE004", "\uE004", "\uE008"]);
+      // WebDriver main Enter is U+E006; U+E007 is the distinct keypad Enter.
+      assert.deepEqual(input[4].params.actions[0].actions, [{ type: "keyDown", value: "\uE006" }, { type: "keyUp", value: "\uE006" }]);
       assert(input.some(event => event.params?.actions?.[0].actions.some(action => action.value === " ")));
     }
     assert(!recorded.some(event => event.event === "signal"));
@@ -116,6 +118,7 @@ test("explicit existing native browser proves trusted focus and default button a
       assert(state.fixture.events.some(event => event.type === "keydown" && event.key === key && event.trusted));
       assert(state.fixture.events.some(event => event.type === "keyup" && event.key === key && event.trusted));
     }
+    for (const type of ["keydown", "keyup"]) assert(state.fixture.events.some(event => event.type === type && event.key === "Enter" && event.code === "Enter" && event.trusted));
     assert(state.fixture.events.some(event => event.key === "Tab" && event.shift && event.trusted));
     await writeFile(path.join(input.outputRoot, "native-input.json"), JSON.stringify({ browser: input.browser, product: page.product, facts: page.facts, state }, null, 2));
   } finally {

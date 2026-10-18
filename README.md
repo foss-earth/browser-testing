@@ -74,6 +74,12 @@ npm test               # node --test
 `npm run ci` runs all three. No script starts a browser, server or watcher
 by itself.
 
+`scripts/chrome-clones.sh` lists the copies of its app bundle that the
+installed Chrome leaves under `/private/var/folders` when a run kills it, and
+`--clean` removes the ones no running browser owns.
+[Chrome's code-sign clones](https://github.com/foss-earth/docs/blob/main/docs/validation/chrome-code-sign-clones.md)
+explains them.
+
 ## License
 
 AGPL-3.0-only; see [LICENSE](LICENSE). Separate commercial terms are described

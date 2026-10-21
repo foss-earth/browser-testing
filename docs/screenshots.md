@@ -20,7 +20,8 @@ Steps run in the order given: `--step EXPR` evaluates an expression (awaited),
 presses a control key (`Tab`, `ShiftTab`, `Enter`, `Space`, `Escape`, the
 arrows, `Home`, `End`, `PageUp`, `PageDown`), and `--print EXPR` prints the
 expression's JSON. Other flags: `--width`, `--height` (1100 by 700),
-`--scale`, `--pad`, `--hide CSS`, `--no-freeze` and `--out DIR`.
+`--scale`, `--pad`, `--hide CSS`, `--timeout MS` (10000) for each wait,
+`--no-freeze` and `--out DIR`.
 
 ## A list
 
@@ -101,8 +102,8 @@ old `archive/` folders by hand when they are no longer useful.
 - **Keep one dev server running** in the background for the whole task, and
   rerun the list after each change. Don't build or start a server per shot.
 - **Put every shot in one list** and run it once: Chrome starts once per
-  viewport, about a second, rather than once per shot. Use `--only` to retake a
-  few.
+  viewport, about a second, rather than once per shot. Use `--only a,b`, or
+  `--only` repeated, to retake a few.
 - **Crop to what changed** with `selector`. A small image is quicker to take,
   compare and look at. An image costs about width × height / 750 tokens to
   view, so a 1100 by 700 viewport is about 1000 tokens and a 300 by 200 crop is

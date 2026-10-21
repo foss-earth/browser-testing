@@ -3,7 +3,7 @@
 //
 //   node shots.mjs <list.mjs|list.json> [--only name,name] [--out dir]
 //   node shots.mjs --url URL [--name NAME] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N]
-//                  [--scale N] [--pad N] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...
+//                  [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...
 //
 // Shots go to --out (build/shots under the current directory by default). An
 // unchanged image is left alone; a changed one moves the old image to
@@ -25,7 +25,7 @@ const { values, positionals, tokens } = parseArgs({
   tokens: true,
   options: {
     out: { type: "string", default: "build/shots" },
-    only: { type: "string" },
+    only: { type: "string", multiple: true },
     url: { type: "string" },
     name: { type: "string" },
     selector: { type: "string" },
@@ -36,13 +36,14 @@ const { values, positionals, tokens } = parseArgs({
     height: { type: "string" },
     scale: { type: "string" },
     pad: { type: "string" },
+    timeout: { type: "string" },
     "no-freeze": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
 
 if (values.help || (positionals.length === 0 && !values.url)) {
-  console.log("Usage: shots.mjs <list.mjs|list.json> [--only a,b] [--out dir]\n       shots.mjs --url URL [--name NAME] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N] [--scale N] [--pad N] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...");
+  console.log("Usage: shots.mjs <list.mjs|list.json> [--only a,b] [--out dir]\n       shots.mjs --url URL [--name NAME] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N] [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...");
   process.exit(values.help ? 0 : 2);
 }
 
@@ -55,6 +56,7 @@ async function loadList() {
       name: values.name ?? "shot", url: values.url, steps,
       ...text("selector"), ...text("wait"), ...text("hide"),
       ...number("width"), ...number("height"), ...number("scale"), ...number("pad"),
+      ...(values.timeout === undefined ? {} : { timeoutMs: Number(values.timeout) }),
       ...(values["no-freeze"] ? { freeze: false } : {}),
     }] };
   }
@@ -69,9 +71,10 @@ try { await access(chrome); } catch { console.error(`No Chrome at "${chrome}"; s
 
 let shots = normalizeShotList(await loadList());
 if (values.only) {
-  const only = new Set(values.only.split(","));
+  // --only a,b and --only a --only b are the same.
+  const only = new Set(values.only.flatMap(names => names.split(",")));
   shots = shots.filter(shot => only.has(shot.name));
-  if (shots.length === 0) { console.error(`No shot is named ${values.only}`); process.exit(2); }
+  if (shots.length === 0) { console.error(`No shot is named ${[...only].join(", ")}`); process.exit(2); }
 }
 const directory = path.resolve(values.out);
 const stamp = utcStamp();

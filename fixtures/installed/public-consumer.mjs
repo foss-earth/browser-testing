@@ -4,6 +4,7 @@ import * as core from "@foss-earth/browser-testing/core";
 import * as chrome from "@foss-earth/browser-testing/chrome";
 import * as firefox from "@foss-earth/browser-testing/firefox";
 import * as page from "@foss-earth/browser-testing/page";
+import * as shots from "@foss-earth/browser-testing/shots";
 
 /** Actual archive-only runner will import this only after a future recorded check grant. */
 export async function publicImportContract() {
@@ -13,6 +14,7 @@ export async function publicImportContract() {
   assert.equal(root.evaluate, chrome.evaluate);
   assert.equal(root.waitForExpression, chrome.waitForExpression);
   assert.deepEqual(Object.keys(root).sort(), Object.keys(core).sort());
+  assert.deepEqual(Object.keys(shots).sort(), ["normalizeShotList", "pngSize", "saveShot", "takeShots", "utcStamp", "writeReview"]);
   // Pure/core imports above must not require a browser, Playwright or tool/cache paths.
   for (const specifier of ["@foss-earth/browser-testing/src/headlessChrome.mjs", "@foss-earth/browser-testing/src/evidence.mjs"]) {
     await assert.rejects(import(specifier), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });

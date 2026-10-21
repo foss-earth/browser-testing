@@ -12,7 +12,7 @@ The root and `./core` export the same helpers: `openHeadlessChrome`,
 `evaluate`, `waitForExpression`, `openHeadlessFirefox` and
 `openHeadlessPage`. `./chrome`, `./firefox` and `./page` expose the individual
 adapters, each with declaration files. Chrome's handle also has a
-`waitForExit` method.
+`waitForExit` method. `./shots` takes [review screenshots](#review-screenshots).
 
 Pass explicit paths for the browser binary, profile, tools, cache and
 artifacts. Never use a personal browser profile.
@@ -39,6 +39,22 @@ A missing browser or backend is an error. The helpers never report a pass or
 quietly pick another browser. `captureEvidence()` returns bounded, sanitized
 protocol data. Screenshots are returned as bytes and can contain application
 content, so store them only in an approved private directory.
+
+## Review screenshots
+
+`scripts/shots.mjs` takes named, cropped screenshots of a running page in one
+headless Chrome, to review a UI change:
+
+```sh
+node scripts/shots.mjs build/review.mjs          # a list of shots
+node scripts/shots.mjs --url http://localhost:5173/ --name home --selector main
+```
+
+It writes `build/shots/<name>.png`, leaves an image with the same bytes alone,
+moves a changed one's old image to `build/shots/archive/<UTC time>/`, and writes
+`build/shots/index.html` showing what changed next to what it was. See
+[Review screenshots](docs/screenshots.md) for the list format and how to keep
+runs fast.
 
 ## Modes and tools
 
@@ -72,7 +88,7 @@ npm test               # node --test
 ```
 
 `npm run ci` runs all three. No script starts a browser, server or watcher
-by itself.
+by itself; `scripts/shots.mjs` starts Chrome only when you run it.
 
 `scripts/chrome-clones.sh` lists the copies of its app bundle that the
 installed Chrome leaves under `/private/var/folders` when a run kills it, and

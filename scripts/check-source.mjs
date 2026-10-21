@@ -25,7 +25,7 @@ async function visit(directory) {
   }
 }
 for (const dir of ['src', 'tests', 'scripts', 'fixtures']) await visit(dir);
-for (const key of ['.', './core', './chrome', './firefox', './page']) {
+for (const key of ['.', './core', './chrome', './firefox', './page', './shots']) {
   const target = manifest.exports[key]; assert(target.import.endsWith('.mjs') && target.types.endsWith('.d.ts'));
   await readFile(path.join(root, target.import)); await readFile(path.join(root, target.types));
 }

@@ -66,6 +66,20 @@ function pointerPorts(width, height, enqueue, click, drag) {
   };
 }
 
+/** A screenshot's optional crop, in CSS pixels of the viewport, and its pixel scale, which only Chrome can change. */
+function screenshotClip(options, scalable) {
+  if (options === undefined) return null;
+  if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["clip", "scale"].includes(key))) throw new Error("Screenshot options are clip and scale");
+  const { clip, scale = 1 } = options;
+  if (typeof scale !== "number" || !Number.isFinite(scale) || scale < 0.25 || scale > 4) throw new Error("Screenshot scale must be 0.25..4");
+  if (scale !== 1 && !scalable) throw new Error("Only Chrome screenshots can change scale");
+  if (clip === undefined) return scale === 1 ? null : { scale };
+  const box = clip && typeof clip === "object" ? clip : {};
+  const fields = ["x", "y", "width", "height"].map(key => box[key]);
+  if (fields.some(value => typeof value !== "number" || !Number.isFinite(value)) || box.x < 0 || box.y < 0 || box.width < 1 || box.height < 1 || box.width > 8192 || box.height > 8192) throw new Error("Screenshot clip needs finite x, y >= 0 and width, height 1..8192");
+  return { clip: { x: box.x, y: box.y, width: box.width, height: box.height }, scale };
+}
+
 const pointerPause = duration => duration ? new Promise(resolve => setTimeout(resolve, duration)) : Promise.resolve();
 
 async function withKeyRelease(down, up) {
@@ -167,7 +181,17 @@ async function chromePage(profileDirectory, { respond, mode, width, height, bina
       product: version.product, facts, pressKey, ...pointer,
       navigate: url => send("Page.navigate", { url: String(url) }),
       evaluate: expression => evaluate(chrome, sessionId, expression),
-      async screenshot() { return Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"); },
+      async screenshot(options) {
+        const crop = screenshotClip(options, true);
+        // A scale without a crop takes the whole viewport at that scale. Chrome crops in page coordinates, so the scroll is added.
+        let clip = null;
+        if (crop) {
+          const box = crop.clip ?? { x: 0, y: 0, width, height };
+          const { cssVisualViewport: view } = await send("Page.getLayoutMetrics");
+          clip = { ...box, x: box.x + (view?.pageX ?? 0), y: box.y + (view?.pageY ?? 0), scale: crop.scale };
+        }
+        return Buffer.from((await send("Page.captureScreenshot", { format: "png", ...(clip ? { clip } : {}) })).data, "base64");
+      },
       async touch() {
         const shift = { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
         await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...shift });
@@ -243,7 +267,10 @@ async function firefoxPage(profileDirectory, { respond, mode, width, height, bin
       product, facts, pressKey, ...pointer,
       navigate: url => firefox.send("browsingContext.navigate", { context, url: String(url), wait: "none" }),
       evaluate: expression => firefox.evaluate(context, expression),
-      async screenshot() { return Buffer.from((await firefox.send("browsingContext.captureScreenshot", { context, origin: "viewport" })).data, "base64"); },
+      async screenshot(options) {
+        const clip = screenshotClip(options, false)?.clip;
+        return Buffer.from((await firefox.send("browsingContext.captureScreenshot", { context, origin: "viewport", ...(clip ? { clip: { type: "box", ...clip } } : {}) })).data, "base64");
+      },
       touch: () => firefox.send("input.performActions", { context, actions: [{ type: "key", id: "keyboard", actions: [{ type: "keyDown", value: "\uE008" }, { type: "keyUp", value: "\uE008" }] }] }),
       close: () => firefox.close(), captureEvidence: () => evidence.snapshot(product, facts),
     };
@@ -334,7 +361,10 @@ async function webkitPage(profileDirectory, { respond, mode, width, height, work
       product, facts, pressKey, ...pointer,
       navigate: url => page.goto(String(url), { waitUntil: "commit", timeout: timeouts.commandMs }),
       evaluate: expression => bounded(page.evaluate(code => (0, eval)(code), expression), timeouts.commandMs, "WebKit evaluation timed out"),
-      screenshot: () => page.screenshot({ type: "png", timeout: timeouts.commandMs }),
+      screenshot: options => {
+        const clip = screenshotClip(options, false)?.clip;
+        return page.screenshot({ type: "png", timeout: timeouts.commandMs, ...(clip ? { clip } : {}) });
+      },
       touch: () => bounded(page.keyboard.press("Shift"), timeouts.commandMs, "WebKit key dispatch timed out"),
       close, captureEvidence: () => evidence.snapshot(product, facts),
     };

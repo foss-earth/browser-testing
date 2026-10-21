@@ -11,5 +11,5 @@ declare module "./contracts.js" {
     dragAt(fromX: number, fromY: number, toX: number, toY: number, options?: PointerDragOptions): Promise<void>;
   }
 }
-export type { BrowserName, BrowserEvidence, BrowserFacts, BrowserTimeouts, CommonPageOptions, EvidenceLimits, HeadlessPage, InterceptResponse, PageMode, PageOptions, PlaywrightSelection, Respond } from "./contracts.js";
+export type { BrowserName, BrowserEvidence, BrowserFacts, BrowserTimeouts, CommonPageOptions, EvidenceLimits, HeadlessPage, InterceptResponse, PageMode, PageOptions, PlaywrightSelection, Respond, ScreenshotOptions } from "./contracts.js";
 export declare function openHeadlessPage(browser: BrowserName, profileDirectory: string, options: PageOptions): Promise<HeadlessPage>;

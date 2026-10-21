@@ -3,6 +3,7 @@ import { openHeadlessChrome as chrome } from "@foss-earth/browser-testing/chrome
 import { openHeadlessFirefox as firefox } from "@foss-earth/browser-testing/firefox";
 import { openHeadlessPage as page } from "@foss-earth/browser-testing/page";
 import * as core from "@foss-earth/browser-testing/core";
+import { normalizeShotList, saveShot, takeShots, utcStamp, writeReview, type ShotList, type ShotRun } from "@foss-earth/browser-testing/shots";
 
 /** Declaration fixture only; a later granted strict NodeNext compilation does not launch. */
 export async function compatibleConsumer(profile: string, binary: string) {
@@ -18,13 +19,21 @@ export async function compatibleConsumer(profile: string, binary: string) {
     playwright: { packageRoot: "tool-home", browserCachePath: "browser-cache", expectedVersion: "1.55.0", expectedCoreVersion: "1.55.0", expectedWebkitRevision: "2203" } });
   const evidence: BrowserEvidence = live.captureEvidence();
   const pixels: Uint8Array = await live.screenshot();
+  const crop: Uint8Array = await live.screenshot({ clip: { x: 10, y: 20, width: 200, height: 100 }, scale: 2 });
   for (const key of ["Tab", "ShiftTab", "Enter", "Space", "Escape", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "Home", "End", "PageUp", "PageDown"] as const) {
     await live.pressKey(key);
   }
   await live.clickAt(20, 30);
   await live.dragAt(20, 30, 90, 80, { steps: 5, durationMs: 250 });
   await live.close();
-  return { result, observed, evidence, pixels, identities: [openHeadlessChrome === core.openHeadlessChrome, openHeadlessFirefox === core.openHeadlessFirefox, openHeadlessPage === core.openHeadlessPage] };
+  const list: ShotList = { base: "http://localhost:5173/", width: 480, wait: "document.fonts.status === 'loaded'", hide: ".clock", shots: [
+    { name: "panel/dark", url: "?theme=dark", selector: ".panel", scale: 2, steps: [{ click: "#open" }, { wait: "document.querySelector('.panel')" }, { key: "Escape" }, { print: "document.title" }, "window.scrollTo(0, 0)"] },
+    { name: "panel/fresh", fresh: true },
+  ] };
+  const run: ShotRun = await takeShots(normalizeShotList(list), { directory: "build/shots", stamp: utcStamp(), openPage: viewport => page("chrome", profile, { mode: "live", ...viewport, binary }) });
+  const review: string = await writeReview("build/shots", run);
+  const saved = await saveShot("build/shots", "panel/dark", crop);
+  return { result, observed, evidence, pixels, review, saved: saved.status, identities: [openHeadlessChrome === core.openHeadlessChrome, openHeadlessFirefox === core.openHeadlessFirefox, openHeadlessPage === core.openHeadlessPage] };
 }
 
 // Old signature remains representable: respond implies interception, not live workers.
@@ -40,6 +49,9 @@ function negativeDeclarationsOnly(live?: HeadlessPage) {
     // @ts-expect-error Arbitrary pointer buttons are outside the primary-only port.
     void live.dragAt(20, 30, 90, 80, { button: "right" });
   }
+  // @ts-expect-error A step is an expression or one of the named actions.
+  const unknownAction: import("@foss-earth/browser-testing/shots").ShotStep = { tap: "#a" };
+  void unknownAction;
   // @ts-expect-error Live mode intentionally cannot promise interception through respond.
   void page("chrome", "profile", { mode: "live", width: 640, height: 480, respond: async () => null });
   // @ts-expect-error The reviewed tool contract cannot silently advance.

@@ -76,12 +76,18 @@ export interface BrowserEvidence {
   lifecycle: LifecycleEvidence[];
   dropped: { console: number; network: number; lifecycle: number };
 }
+/** A screenshot's crop in CSS pixels of the viewport; only Chrome takes a scale other than 1, for a sharper crop. */
+export interface ScreenshotOptions {
+  clip?: { x: number; y: number; width: number; height: number };
+  scale?: number;
+}
+
 export interface HeadlessPage {
   readonly product: string;
   readonly facts: BrowserFacts;
   navigate(url: string | URL): Promise<unknown>;
   evaluate<T = unknown>(expression: string): Promise<T>;
-  screenshot(): Promise<Buffer>;
+  screenshot(options?: ScreenshotOptions): Promise<Buffer>;
   touch(): Promise<unknown>;
   close(): Promise<ExitResult | void>;
   /** Synchronous immutable copy; still available after close, bounded and sanitized. */

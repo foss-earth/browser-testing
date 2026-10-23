@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeShotList, pngSize, saveShot, takeShots, utcStamp, writeReview } from "../src/shots.mjs";
+import { DEVICE_SIZES, normalizeShotList, pinchDistances, pngSize, saveShot, takeShots, utcStamp, writeReview } from "../src/shots.mjs";
 
 // Scratch stays in the package's gitignored build/.
 const scratch = fileURLToPath(new URL("../build/", import.meta.url));
@@ -59,7 +59,7 @@ test("A list fills its shots from its own defaults, then the package's, and reso
     base: "http://localhost:5199/app/", width: 480, wait: "window.ready", hide: ".fps",
     shots: [{ name: "a", url: "?theme=dark", selector: ".panel", steps: ["x()", { click: "#b" }] }, { name: "b", height: 300, hide: ".clock", fresh: true }],
   });
-  assert.deepEqual(first, { width: 480, height: 700, scale: 1, pad: 8, freeze: true, timeoutMs: 10000, fresh: false, wait: "window.ready", hide: ".fps",
+  assert.deepEqual(first, { device: "desktop", width: 480, height: 700, scale: 1, pad: 8, freeze: true, timeoutMs: 10000, fresh: false, wait: "window.ready", hide: ".fps",
     name: "a", url: "http://localhost:5199/app/?theme=dark", selector: ".panel", steps: ["x()", { click: "#b" }] });
   assert.equal(second.url, "http://localhost:5199/app/");
   assert.deepEqual([second.width, second.height, second.hide, second.fresh, second.steps], [480, 300, ".clock", true, []]);
@@ -78,9 +78,32 @@ test("A list with anything unknown, repeated or out of range is refused before a
     [{ shots: [{ ...shot, pad: -1 }] }, /pad/],
     [{ shots: [{ ...shot, fresh: "yes" }] }, /fresh/],
     [{ shots: [{ ...shot, steps: [{ click: "#a", key: "Tab" }] }] }, /a step is/],
-    [{ shots: [{ ...shot, steps: [{ tap: "#a" }] }] }, /a step is/],
+    [{ shots: [{ ...shot, steps: [{ hover: "#a" }] }] }, /a step is/],
+    [{ shots: [{ ...shot, steps: [{ tap: "#a", by: [1, 2] }] }] }, /a step is/],
+    [{ shots: [{ ...shot, steps: [{ swipe: "#a" }] }] }, /a swipe's by is \[dx, dy\]/],
+    [{ shots: [{ ...shot, steps: [{ drag: "#a", by: [1] }] }] }, /a drag's by/],
+    [{ shots: [{ ...shot, steps: [{ pinch: "#a", scale: 20 }] }] }, /scale is a number 0\.1\.\.10/],
+    [{ shots: [{ ...shot, steps: [{ pinch: "#a", scale: 2, by: [0, 0] }] }] }, /a step is/],
+    [{ shots: [{ ...shot, device: "watch" }] }, /device is desktop, phone, tablet/],
     [{ shots: [{ ...shot, selector: 3 }] }, /selector must be a string/],
   ]) assert.throws(() => normalizeShotList(list), message);
+});
+
+test("A phone or a tablet has its own viewport, which a size beside its device or on its shot changes", () => {
+  const shots = normalizeShotList({ base: "http://localhost/", width: 1280, shots: [
+    { name: "desk" }, { name: "phone", device: "phone" }, { name: "tablet", device: "tablet", height: 600 },
+  ] });
+  assert.deepEqual(shots.map(shot => [shot.device, shot.width, shot.height]), [["desktop", 1280, 700], ["phone", 412, 915], ["tablet", 1280, 600]]);
+  const phones = normalizeShotList({ device: "phone", height: 700, shots: [{ name: "a", url: "http://localhost/" }, { name: "b", url: "http://localhost/", device: "desktop" }] });
+  assert.deepEqual(phones.map(shot => [shot.device, shot.width, shot.height]), [["phone", 412, 700], ["desktop", DEVICE_SIZES.desktop.width, DEVICE_SIZES.desktop.height]]);
+});
+
+test("A pinch is about as wide as its element, its fingers inside the viewport, at the scale asked", () => {
+  assert.deepEqual(pinchDistances({ width: 1000, height: 800 }, 500, 1100, 2), { from: 160, to: 320 });
+  assert.deepEqual(pinchDistances({ width: 100, height: 50 }, 500, 1100, 0.5), { from: 20, to: 10 });
+  const near = pinchDistances({ width: 400, height: 400 }, 100, 412, 3);
+  assert.equal(near.to, 2 * 100);
+  assert.ok(Math.abs(near.to / near.from - 3) < 1e-12);
 });
 
 /** A page that answers the run's expressions without a browser and records what it was asked. */
@@ -100,6 +123,10 @@ function fakePage(log, { fail = [], box = { x: 100, y: 50, width: 200, height: 4
       return undefined;
     },
     async clickAt(x, y) { log.push(`click ${x},${y}`); },
+    async tapAt(x, y) { log.push(`tap ${x},${y}`); },
+    async swipeAt(x, y, toX, toY) { log.push(`swipe ${x},${y} ${toX},${toY}`); },
+    async dragAt(x, y, toX, toY) { log.push(`drag ${x},${y} ${toX},${toY}`); },
+    async pinchAt(x, y, from, to) { log.push(`pinch ${x},${y} ${from} ${to}`); },
     async pressKey(key) { log.push(`key ${key}`); },
     async screenshot(options) { log.push(`screenshot ${JSON.stringify(options ?? null)}`); return png(options?.clip?.width ?? 1100, options?.clip?.height ?? 700, url.length % 256); },
     captureEvidence() { return { console: [{ level: "error", text: "boom" }, { level: "info", text: "fine" }, { level: "error", text: "boom" }] }; },
@@ -122,7 +149,7 @@ test("Shots run in order in one browser per viewport, fresh shots and new viewpo
     openPage: async viewport => { opened.push(viewport); log.push("open"); return fakePage(log, { fail: ["http://localhost/c"] }); },
     onResult: result => results.push(result.name),
   });
-  assert.deepEqual(opened, [{ width: 1100, height: 700 }, { width: 1100, height: 700 }, { width: 640, height: 700 }]);
+  assert.deepEqual(opened, [{ width: 1100, height: 700, device: "desktop" }, { width: 1100, height: 700, device: "desktop" }, { width: 640, height: 700, device: "desktop" }]);
   assert.deepEqual(results, ["a", "b", "c", "d"]);
   assert.deepEqual(log.slice(0, 14), [
     "open", "navigate /a", "settle", "box first", "click 200,70", "eval go()", "key Escape", "settle", "box all",
@@ -169,4 +196,17 @@ test("A changed shot is reviewed first, beside its archived image, and names are
   assert(review.indexOf(">bad <span>failed") < review.indexOf(">plain <span>unchanged"));
   assert.match(review, /src="archive\/2026-10-21T150000Z\/x\.png"/);
   assert(!review.includes("<script>"));
+}));
+
+test("Touch steps go to the first match's center as a finger would, and each device opens its own browser", () => withDirectory(async directory => {
+  const log = [];
+  const opened = [];
+  const shots = normalizeShotList({ base: "http://localhost/", shots: [
+    { name: "phone", device: "phone", steps: [{ tap: "#a" }, { swipe: "#a", by: [0, -1000] }, { pinch: "#a", scale: 2 }, { drag: "#a", by: [30, 0] }] },
+    { name: "desk", width: 412, height: 915 },
+  ] });
+  await takeShots(shots, { directory, openPage: async viewport => { opened.push(viewport); return fakePage(log); } });
+  assert.deepEqual(opened, [{ width: 412, height: 915, device: "phone" }, { width: 412, height: 915, device: "desktop" }]);
+  // The box is 200 by 40 at (100, 50), so its center is (200, 70). A swipe stops at the viewport's edge; a pinch on a box that low starts at the least, 20 px apart.
+  assert.deepEqual(log.filter(entry => /^(tap|swipe|pinch|drag) /.test(entry)), ["tap 200,70", "swipe 200,70 200,0", "pinch 200,70 20 40", "drag 200,70 230,70"]);
 }));

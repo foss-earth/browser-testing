@@ -26,9 +26,15 @@ export async function compatibleConsumer(profile: string, binary: string) {
   await live.clickAt(20, 30);
   await live.dragAt(20, 30, 90, 80, { steps: 5, durationMs: 250 });
   await live.close();
+  const phone: HeadlessPage = await page("chrome", profile, { mode: "live", width: 412, height: 915, device: "phone", binary });
+  await phone.tapAt(20, 30);
+  await phone.swipeAt(200, 800, 200, 300, { steps: 10, durationMs: 250 });
+  await phone.pinchAt(206, 450, 80, 160);
+  await phone.close();
   const list: ShotList = { base: "http://localhost:5173/", width: 480, wait: "document.fonts.status === 'loaded'", hide: ".clock", shots: [
     { name: "panel/dark", url: "?theme=dark", selector: ".panel", scale: 2, steps: [{ click: "#open" }, { wait: "document.querySelector('.panel')" }, { key: "Escape" }, { print: "document.title" }, "window.scrollTo(0, 0)"] },
     { name: "panel/fresh", fresh: true },
+    { name: "panel/phone", device: "phone", steps: [{ tap: "#open" }, { swipe: ".panel", by: [0, -200] }, { pinch: ".map", scale: 2 }, { drag: ".map", by: [40, 0] }] },
   ] };
   const run: ShotRun = await takeShots(normalizeShotList(list), { directory: "build/shots", stamp: utcStamp(), openPage: viewport => page("chrome", profile, { mode: "live", ...viewport, binary }) });
   const review: string = await writeReview("build/shots", run);
@@ -50,7 +56,12 @@ function negativeDeclarationsOnly(live?: HeadlessPage) {
     void live.dragAt(20, 30, 90, 80, { button: "right" });
   }
   // @ts-expect-error A step is an expression or one of the named actions.
-  const unknownAction: import("@foss-earth/browser-testing/shots").ShotStep = { tap: "#a" };
+  const unknownAction: import("@foss-earth/browser-testing/shots").ShotStep = { hover: "#a" };
+  // @ts-expect-error A swipe says how far it goes.
+  const swipeWithoutBy: import("@foss-earth/browser-testing/shots").ShotStep = { swipe: "#a" };
+  void swipeWithoutBy;
+  // @ts-expect-error A device is a desktop, a phone or a tablet.
+  void page("chrome", "profile", { mode: "live", width: 640, height: 480, device: "watch" });
   void unknownAction;
   // @ts-expect-error Live mode intentionally cannot promise interception through respond.
   void page("chrome", "profile", { mode: "live", width: 640, height: 480, respond: async () => null });

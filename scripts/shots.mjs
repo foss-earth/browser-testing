@@ -2,8 +2,8 @@
 // Takes review screenshots in headless Chrome. See docs/screenshots.md.
 //
 //   node shots.mjs <list.mjs|list.json> [--only name,name] [--out dir]
-//   node shots.mjs --url URL [--name NAME] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N]
-//                  [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...
+//   node shots.mjs --url URL [--name NAME] [--device desktop|phone|tablet] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N]
+//                  [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --tap CSS | --key KEY | --print EXPR]...
 //
 // Shots go to --out (build/shots under the current directory by default). An
 // unchanged image is left alone; a changed one moves the old image to
@@ -19,7 +19,7 @@ import { parseArgs } from "node:util";
 import { openHeadlessPage } from "../src/headlessPage.mjs";
 import { normalizeShotList, takeShots, utcStamp, writeReview } from "../src/shots.mjs";
 
-const STEP_FLAGS = { step: step => step, click: click => ({ click }), key: key => ({ key }), print: print => ({ print }) };
+const STEP_FLAGS = { step: step => step, click: click => ({ click }), tap: tap => ({ tap }), key: key => ({ key }), print: print => ({ print }) };
 const { values, positionals, tokens } = parseArgs({
   allowPositionals: true,
   tokens: true,
@@ -28,6 +28,7 @@ const { values, positionals, tokens } = parseArgs({
     only: { type: "string", multiple: true },
     url: { type: "string" },
     name: { type: "string" },
+    device: { type: "string" },
     selector: { type: "string" },
     wait: { type: "string" },
     hide: { type: "string" },
@@ -43,7 +44,7 @@ const { values, positionals, tokens } = parseArgs({
 });
 
 if (values.help || (positionals.length === 0 && !values.url)) {
-  console.log("Usage: shots.mjs <list.mjs|list.json> [--only a,b] [--out dir]\n       shots.mjs --url URL [--name NAME] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N] [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --key KEY | --print EXPR]...");
+  console.log("Usage: shots.mjs <list.mjs|list.json> [--only a,b] [--out dir]\n       shots.mjs --url URL [--name NAME] [--device desktop|phone|tablet] [--selector CSS] [--wait EXPR] [--hide CSS] [--width N] [--height N] [--scale N] [--pad N] [--timeout MS] [--no-freeze] [--out dir] [--step EXPR | --click CSS | --tap CSS | --key KEY | --print EXPR]...");
   process.exit(values.help ? 0 : 2);
 }
 
@@ -54,7 +55,7 @@ async function loadList() {
     const steps = tokens.filter(token => token.kind === "option" && token.name in STEP_FLAGS).map(token => STEP_FLAGS[token.name](token.value));
     return { shots: [{
       name: values.name ?? "shot", url: values.url, steps,
-      ...text("selector"), ...text("wait"), ...text("hide"),
+      ...text("device"), ...text("selector"), ...text("wait"), ...text("hide"),
       ...number("width"), ...number("height"), ...number("scale"), ...number("pad"),
       ...(values.timeout === undefined ? {} : { timeoutMs: Number(values.timeout) }),
       ...(values["no-freeze"] ? { freeze: false } : {}),
@@ -91,12 +92,13 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 let browsers = 0;
-async function openPage({ width, height }) {
+async function openPage({ width, height, device }) {
   const profile = path.join(directory, ".profiles", `${stamp}-${++browsers}`);
   await mkdir(profile, { recursive: true });
   const page = await openHeadlessPage("chrome", profile, {
-    mode: "live", width, height, binary: chrome,
-    chromeArgs: [`--disk-cache-dir=${path.join(directory, ".cache")}`],
+    mode: "live", width, height, device, binary: chrome,
+    // A dev server's https uses a self-signed certificate; this throwaway profile accepts it as a phone does past the warning.
+    chromeArgs: ["--ignore-certificate-errors", `--disk-cache-dir=${path.join(directory, ".cache")}`],
     timeouts: { startupMs: 30000, commandMs: Math.min(120000, timeoutMs + 10000), closeMs: 10000, exitMs: 5000 },
   });
   const close = page.close;

@@ -10,10 +10,15 @@ import path from "node:path";
  */
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
-const DEFAULT_KEYS = ["width", "height", "scale", "pad", "freeze", "timeoutMs", "wait", "hide"];
+const DEFAULT_KEYS = ["device", "width", "height", "scale", "pad", "freeze", "timeoutMs", "wait", "hide"];
 const SHOT_KEYS = ["name", "url", "steps", "selector", "fresh", ...DEFAULT_KEYS];
 const LIST_KEYS = ["base", "shots", ...DEFAULT_KEYS];
-const STEP_KEYS = ["click", "key", "wait", "print"];
+/** Steps of one selector or expression; `swipe` and `drag` also take `by`, and `pinch` a `scale`. */
+const STEP_KEYS = ["click", "tap", "key", "wait", "print"];
+const MOVE_STEPS = { swipe: "by", drag: "by", pinch: "scale" };
+/** Each device's viewport unless a shot gives its own: Chrome's Pixel 8 and Pixel Tablet, the tablet held level. */
+export const DEVICE_SIZES = Object.freeze({ desktop: { width: 1100, height: 700 }, phone: { width: 412, height: 915 }, tablet: { width: 1280, height: 800 } });
+const STEP_HELP = "a step is an expression string, { click | tap: selector }, { swipe | drag: selector, by: [dx, dy] }, { pinch: selector, scale }, { key: name }, { wait: expression } or { print: expression }";
 
 /** A run's archive folder name: its UTC time, "2026-10-21T155203Z", which sorts by time. */
 export function utcStamp(date = new Date()) {
@@ -65,16 +70,27 @@ function positive(value, name, max) {
 function checkStep(step, where) {
   if (typeof step === "string") return;
   const keys = step && typeof step === "object" ? Object.keys(step) : [];
-  if (keys.length !== 1 || !STEP_KEYS.includes(keys[0]) || typeof step[keys[0]] !== "string") {
-    throw new Error(`${where}: a step is an expression string, { click: selector }, { key: name }, { wait: expression } or { print: expression }`);
+  const action = keys.find(key => key in MOVE_STEPS);
+  if (action) {
+    const extra = MOVE_STEPS[action];
+    const value = step[extra];
+    const valid = extra === "by"
+      ? Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)
+      : typeof value === "number" && value >= 0.1 && value <= 10;
+    if (keys.length === 2 && typeof step[action] === "string" && valid) return;
+    throw new Error(`${where}: ${action === "pinch" ? "a pinch's scale is a number 0.1..10" : `a ${action}'s by is [dx, dy] in CSS px`}; ${STEP_HELP}`);
   }
+  if (keys.length !== 1 || !STEP_KEYS.includes(keys[0]) || typeof step[keys[0]] !== "string") throw new Error(`${where}: ${STEP_HELP}`);
 }
 
 /**
- * Checks a shot list and fills each shot from the list's defaults: a viewport
- * of 1100 by 700, scale 1, 8 px around a crop, animations frozen and 10 s to
- * wait. The list's own width, height, scale, pad, freeze, timeoutMs, wait and
- * hide are its shots' defaults. A shot's url is relative to the list's base.
+ * Checks a shot list and fills each shot from the list's defaults: a desktop
+ * viewport of 1100 by 700, scale 1, 8 px around a crop, animations frozen and
+ * 10 s to wait. The list's own device, width, height, scale, pad, freeze,
+ * timeoutMs, wait and hide are its shots' defaults. A phone or a tablet has
+ * its own viewport, which a width or height beside the device, or on its
+ * shot, changes; a shot that names its own device leaves the list's size.
+ * A shot's url is relative to the list's base.
  */
 export function normalizeShotList(list) {
   if (!list || typeof list !== "object" || !Array.isArray(list.shots) || list.shots.length === 0) throw new Error("A shot list has a non-empty shots array");
@@ -89,10 +105,14 @@ export function normalizeShotList(list) {
     checkName(shot.name);
     if (names.has(shot.name)) throw new Error(`${where} is named twice`);
     names.add(shot.name);
+    const device = shot.device ?? list.device ?? "desktop";
+    if (!Object.hasOwn(DEVICE_SIZES, device)) throw new Error(`${where}: device is ${Object.keys(DEVICE_SIZES).join(", ")}`);
+    const ownDevice = shot.device !== undefined;
     const merged = {
-      width: 1100, height: 700, scale: 1, pad: 8, freeze: true, timeoutMs: 10000, fresh: false,
-      ...Object.fromEntries(DEFAULT_KEYS.filter(key => list[key] !== undefined).map(key => [key, list[key]])),
+      ...DEVICE_SIZES[device], scale: 1, pad: 8, freeze: true, timeoutMs: 10000, fresh: false,
+      ...Object.fromEntries(DEFAULT_KEYS.filter(key => list[key] !== undefined && !(ownDevice && (key === "width" || key === "height"))).map(key => [key, list[key]])),
       ...shot,
+      device,
     };
     for (const key of ["width", "height"]) if (!Number.isSafeInteger(merged[key]) || merged[key] < 1 || merged[key] > 8192) throw new Error(`${where}: ${key} must be a whole number 1..8192`);
     positive(merged.scale, `${where}: scale`, 4);
@@ -167,13 +187,30 @@ function boxExpression(selector, first = false) {
   })()`;
 }
 
+/** A pinch's two distances, `scale` apart, about as wide as the element and inside the viewport either side of its centre. */
+export function pinchDistances(box, x, width, scale) {
+  let from = Math.max(20, Math.min(160, 0.4 * Math.min(box.width, box.height))), to = from * scale;
+  const over = Math.max(from, to) / (2 * Math.min(x, width - 1 - x));
+  if (over > 1) { from /= over; to /= over; }
+  return { from, to };
+}
+
 async function runStep(page, step, shot, printed) {
   if (typeof step === "string") { await page.evaluate(step); return; }
   if (step.print !== undefined) { printed.push(await page.evaluate(`(async () => JSON.stringify(await (${step.print})))()`)); return; }
   if (step.wait !== undefined) { await settle(page, step.wait, shot.timeoutMs, false); return; }
   if (step.key !== undefined) { await page.pressKey(step.key); return; }
-  const box = await page.evaluate(boxExpression(step.click, true));
-  await page.clickAt(Math.min(shot.width - 1, box.x + box.width / 2), Math.min(shot.height - 1, box.y + box.height / 2));
+  const selector = step.click ?? step.tap ?? step.swipe ?? step.drag ?? step.pinch;
+  const box = await page.evaluate(boxExpression(selector, true));
+  const inside = (value, size) => Math.max(0, Math.min(size - 1, value));
+  const x = inside(box.x + box.width / 2, shot.width), y = inside(box.y + box.height / 2, shot.height);
+  if (step.click !== undefined) await page.clickAt(x, y);
+  else if (step.tap !== undefined) await page.tapAt(x, y);
+  else if (step.pinch !== undefined) { const { from, to } = pinchDistances(box, x, shot.width, step.scale); await page.pinchAt(x, y, from, to); }
+  else {
+    const toX = inside(x + step.by[0], shot.width), toY = inside(y + step.by[1], shot.height);
+    await (step.swipe !== undefined ? page.swipeAt(x, y, toX, toY) : page.dragAt(x, y, toX, toY));
+  }
 }
 
 /** A crop of the selector's box with pad around it, kept inside the viewport. */
@@ -186,8 +223,8 @@ function cropOf(box, shot) {
 
 /**
  * Takes a normalized list's shots in order through `openPage({ width,
- * height })`, which returns a HeadlessPage the run closes. A shot uses the
- * browser of the shot before it when they share a viewport, and so its
+ * height, device })`, which returns a HeadlessPage the run closes. A shot uses
+ * the browser of the shot before it when they share a viewport and a device, and so its
  * storage; a fresh shot, or a new viewport, opens another. Each shot
  * navigates, waits, runs its steps, then captures its crop. `onPage` sees
  * each page as it opens, so a caller can close it on a signal.
@@ -197,13 +234,13 @@ export async function takeShots(shots, { directory, openPage, stamp = utcStamp()
   const groups = [];
   for (const shot of shots) {
     const last = groups.at(-1)?.at(-1);
-    if (last && !shot.fresh && last.width === shot.width && last.height === shot.height) groups.at(-1).push(shot);
+    if (last && !shot.fresh && last.width === shot.width && last.height === shot.height && last.device === shot.device) groups.at(-1).push(shot);
     else groups.push([shot]);
   }
   const consoleErrors = [];
   for (const group of groups) {
-    const { width, height } = group[0];
-    const page = await openPage({ width, height });
+    const { width, height, device } = group[0];
+    const page = await openPage({ width, height, device });
     onPage(page);
     try {
       for (const shot of group) {

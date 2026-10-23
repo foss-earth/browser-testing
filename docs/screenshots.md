@@ -9,17 +9,18 @@ report of what changed so nobody has to look at the rest.
 
 ```sh
 node ~/gh/foss-earth/browser-testing/scripts/shots.mjs \
-  --url http://localhost:5173/app/ --name settings/open \
+  --url https://localhost:5173/app/ --name settings/open \
   --wait 'document.querySelector(".app-ready")' \
   --click '#settingsButton' --print 'document.title' \
   --selector '.settings-window' --scale 2
 ```
 
 Steps run in the order given: `--step EXPR` evaluates an expression (awaited),
-`--click CSS` clicks the center of the first visible match, `--key NAME`
+`--click CSS` clicks the center of the first visible match, `--tap CSS` taps
+it with a finger, `--key NAME`
 presses a control key (`Tab`, `ShiftTab`, `Enter`, `Space`, `Escape`, the
 arrows, `Home`, `End`, `PageUp`, `PageDown`), and `--print EXPR` prints the
-expression's JSON. Other flags: `--width`, `--height` (1100 by 700),
+expression's JSON. Other flags: `--device` (`desktop`, `phone` or `tablet`), `--width`, `--height` (1100 by 700),
 `--scale`, `--pad`, `--hide CSS`, `--timeout MS` (10000) for each wait,
 `--no-freeze` and `--out DIR`.
 
@@ -33,7 +34,7 @@ the repository's gitignored `build/`.
 // build/review.mjs
 const open = [`document.querySelector(".settings") || document.querySelector("#settings").click()`, { wait: "document.querySelector('.settings')" }];
 export default {
-  base: "http://localhost:5173/app/",
+  base: "https://localhost:5173/app/",
   width: 1000, height: 700,
   wait: `document.querySelector(".app-ready")`, // every shot waits for this
   hide: "canvas, .fps",                          // live parts that change every image
@@ -55,9 +56,40 @@ A shot has a `name` (letters, digits, `.`, `_`, `-`, in `/` folders), a `url`
 relative to `base`, `steps`, and a `selector` to crop to the box around every
 visible match, plus `pad` pixels. Without a `selector` it takes the whole
 viewport. Steps are expression strings or `{ click }`, `{ key }`, `{ wait }`
-and `{ print }`. The list's `width`, `height`, `scale`, `pad`, `freeze`,
-`timeoutMs`, `wait` and `hide` are its shots' defaults. Unknown keys are an
-error, so a typo fails at once instead of after a browser starts.
+and `{ print }`, and the touch steps below. The list's `device`, `width`,
+`height`, `scale`, `pad`, `freeze`, `timeoutMs`, `wait` and `hide` are its
+shots' defaults. Unknown keys are an error, so a typo fails at once instead of
+after a browser starts.
+
+## Phones and tablets
+
+`device: "phone"` or `"tablet"` opens Chrome as its device mode makes one:
+a touch screen of five points, a mobile viewport, and an Android Pixel 8 or
+Pixel Tablet user agent with its client hints. The page sees
+`(pointer: coarse)`, `(hover: none)` and `navigator.maxTouchPoints` of 5, as on
+the device. A phone's viewport is 412 by 915 and a tablet's 1280 by 800 (held
+level) unless the shot gives its own `width` or `height`. A shot that names its
+own device leaves the list's size alone, so a desktop list can hold a phone
+shot. The pixel ratio stays 1 so images stay small; `scale` sharpens one.
+
+Touch steps act on the center of the first visible match, as a finger does:
+Chrome sends them as touches, and the page gets trusted touch and pointer
+events (`pointerType` "touch"), and a click after a tap.
+
+```js
+{ name: "viewer/phone", device: "phone", url: "viewer.html", steps: [
+  { tap: ".start" },
+  { swipe: ".viewer", by: [-120, 0] },   // one finger, 120 px left
+  { pinch: ".viewer", scale: 2 },        // two fingers spread to twice as far apart: zoom in
+  { drag: ".viewer", by: [0, 80] },      // the mouse twin of a swipe
+] }
+```
+
+A pinch starts with its fingers about 0.4 of the element's smaller side apart
+(20 to 160 px) on a level line, and keeps them inside the viewport. Touch steps
+work on a desktop device too, as a touch screen laptop's, but only a phone or a
+tablet reports touch to the page's media queries. Only Chrome emulates a
+device.
 
 Before each shot the page must make `wait` true. Then it waits for fonts and
 two frames, and animations, transitions and the caret are stopped (`freeze`).
@@ -122,6 +154,11 @@ old `archive/` folders by hand when they are no longer useful.
 ## Chrome
 
 It uses `CHROME_BINARY`, or the standard macOS install of Google Chrome.
+Each browser accepts a self-signed certificate, as a dev server serves https
+with one, so shoot the https URL the server prints: past the warning a phone
+sees the same secure page, with WebGPU, and shared memory once the server
+sends cross-origin isolation. A plain `http://` address other than
+`localhost` is not secure and has neither.
 Interrupting a run with Ctrl-C still closes Chrome. If Chrome was killed some
 other way, run `scripts/chrome-clones.sh --clean` (see the
 [README](../README.md#development)).

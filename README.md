@@ -15,7 +15,9 @@ adapters, each with declaration files. Chrome's handle also has a
 `waitForExit` method. `./shots` takes [review screenshots](#review-screenshots).
 
 Pass explicit paths for the browser binary, profile, tools, cache and
-artifacts. Never use a personal browser profile.
+artifacts. Never use a personal browser profile. A Chrome page opened with
+`device: 'phone'` or `'tablet'` is that device to the page, and takes taps,
+swipes and pinches ([pointer.md](docs/pointer.md)).
 
 ```js
 import { openHeadlessPage } from '@foss-earth/browser-testing/page';
@@ -47,7 +49,7 @@ headless Chrome, to review a UI change:
 
 ```sh
 node scripts/shots.mjs build/review.mjs          # a list of shots
-node scripts/shots.mjs --url http://localhost:5173/ --name home --selector main
+node scripts/shots.mjs --url https://localhost:5173/ --name home --selector main
 ```
 
 It writes `build/shots/<name>.png`, leaves an image with the same bytes alone,

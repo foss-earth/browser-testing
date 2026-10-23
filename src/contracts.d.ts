@@ -41,8 +41,12 @@ export interface PlaywrightSelection {
   expectedWebkitRevision: "2203";
 }
 export interface EvidenceLimits { console?: number; network?: number; lifecycle?: number; textLength?: number }
+/** A desktop, or a phone or tablet as Chrome's device mode makes one: touch, a mobile viewport and an Android user agent. */
+export type DeviceName = "desktop" | "phone" | "tablet";
 export interface CommonPageOptions {
   width: number; height: number;
+  /** Chrome only for anything but "desktop", the default. */
+  device?: DeviceName;
   binary?: string;
   chromeArgs?: string[];
   firefoxPrefs?: Record<string, string | number | boolean>;
@@ -59,6 +63,8 @@ export type PageOptions = CommonPageOptions & (
 );
 export interface BrowserFacts {
   browser: BrowserName; mode: PageMode; workers: boolean; engineVersion?: string;
+  /** Chrome's emulated device. */
+  device?: DeviceName;
   pid?: number;
   toolVersions?: { playwright: string; playwrightCore: string };
   webkitRevision?: string;

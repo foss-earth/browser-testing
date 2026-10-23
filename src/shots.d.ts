@@ -1,11 +1,23 @@
-import type { HeadlessPage } from "./contracts.js";
+import type { DeviceName, HeadlessPage } from "./contracts.js";
 
-/** An expression run in the page, or a native click at the first visible match's center, a control key, a wait for an expression, or an expression whose JSON result is printed. */
-export type ShotStep = string | { click: string } | { key: string } | { wait: string } | { print: string };
+/**
+ * An expression run in the page; a native click or a finger's tap at the
+ * first visible match's center; a finger's swipe or a mouse drag from there
+ * by [dx, dy] CSS px; two fingers pinched there, `scale` times as far apart at
+ * the end as at the start (above 1 spreads them, to zoom in); a control key; a
+ * wait for an expression; or an expression whose JSON result is printed.
+ */
+export type ShotStep = string | { click: string } | { tap: string } | { swipe: string; by: [number, number] } | { drag: string; by: [number, number] }
+  | { pinch: string; scale: number } | { key: string } | { wait: string } | { print: string };
+
+/** Each device's viewport unless a shot gives its own. */
+export declare const DEVICE_SIZES: Readonly<Record<DeviceName, { width: number; height: number }>>;
 
 /** What a shot list's shots take from it unless they set their own. */
 export interface ShotDefaults {
-  /** Viewport in CSS pixels; 1100 by 700 by default. */
+  /** A phone or a tablet has touch, a mobile viewport and an Android user agent, and its own viewport size; "desktop" by default. */
+  device?: DeviceName;
+  /** Viewport in CSS pixels; the device's, 1100 by 700 for a desktop, by default. */
   width?: number;
   height?: number;
   /** Device pixels per CSS pixel of the image, 0.25..4; Chrome only for anything but 1. */
@@ -63,7 +75,7 @@ export interface ShotRun {
 export interface TakeShotsOptions {
   directory: string;
   /** Opens a browser for a group of shots; the run closes it. */
-  openPage(viewport: { width: number; height: number }): Promise<HeadlessPage>;
+  openPage(viewport: { width: number; height: number; device: DeviceName }): Promise<HeadlessPage>;
   /** The run's archive folder name; utcStamp() by default. */
   stamp?: string;
   onPage?(page: HeadlessPage | null): void;
@@ -77,6 +89,8 @@ export declare function saveShot(directory: string, name: string, bytes: Uint8Ar
 export declare function pngSize(bytes: Uint8Array): { width: number; height: number } | null;
 /** Checks a list and fills each shot from the list's defaults. Throws on anything unknown or out of range. */
 export declare function normalizeShotList(list: ShotList): NormalizedShot[];
+/** A pinch step's two finger distances, `scale` apart, for an element's box, centred at `x` in a viewport `width` wide. */
+export declare function pinchDistances(box: { width: number; height: number }, x: number, width: number, scale: number): { from: number; to: number };
 export declare function takeShots(shots: NormalizedShot[], options: TakeShotsOptions): Promise<ShotRun>;
 /** Writes <directory>/index.html to review a run: changed shots next to what they were, then new, failed and unchanged ones. */
 export declare function writeReview(directory: string, run: ShotRun): Promise<string>;

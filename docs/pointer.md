@@ -12,6 +12,14 @@ drag releases the primary button on success or failure. Input errors enter
 bounded sanitized console evidence. Callers still await `page.close()` in
 `finally` and check that browser exit was graceful.
 
+Chrome pages also take touch: `page.tapAt(x, y)`, `page.swipeAt(fromX, fromY,
+toX, toY, options?)` (one finger, 10 steps over 250 ms by default) and
+`page.pinchAt(x, y, fromDistance, toDistance, options?)` (two fingers either
+side of the point on a level line, 10 steps over 300 ms). They share the
+pointer queue and its bounds, and lift every finger when a move fails. A page
+opened with `device: "phone"` or `"tablet"` also reports touch to the page, as
+the device would. Firefox and WebKit pages refuse touch input.
+
 The generic pointer fixture verifies trusted click and drag events using an
 explicit existing browser/tool selection. `FOSS_BROWSER_POINTER_INPUT` names a
 JSON input with `browser`, fresh `outputRoot` and injected page `options`. Native

@@ -8,6 +8,32 @@ import { createEvidence, sanitizeText } from "./evidence.mjs";
 
 const CHECK_NAME = "foss-earth-browser-testing/0.1";
 
+/**
+ * Chrome's device mode for a phone or a tablet: a touch screen of 5 points, a
+ * mobile viewport, and the user agent and client hints of an Android device,
+ * so a page takes it for one. The pixel ratio stays 1, so images stay small;
+ * a screenshot's scale sharpens one.
+ */
+const DEVICES = Object.freeze({
+  phone: { model: "Pixel 8", mobile: true },
+  tablet: { model: "Pixel Tablet", mobile: false },
+});
+const DEVICE_NAMES = ["desktop", ...Object.keys(DEVICES)];
+
+/** The user agent override of an Android `device` running this Chrome. */
+export function deviceUserAgent(product, device) {
+  const full = /Chrome\/([\d.]+)/.exec(product)?.[1] ?? "0.0.0.0";
+  const major = full.split(".")[0];
+  return {
+    userAgent: `Mozilla/5.0 (Linux; Android 14; ${device.model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${full} ${device.mobile ? "Mobile " : ""}Safari/537.36 ${CHECK_NAME}`,
+    platform: "Linux armv8l",
+    userAgentMetadata: {
+      brands: [{ brand: "Chromium", version: major }, { brand: "Not_A Brand", version: "24" }],
+      fullVersion: full, platform: "Android", platformVersion: "14.0.0", architecture: "", model: device.model, mobile: device.mobile,
+    },
+  };
+}
+
 // A finite control vocabulary; text entry and arbitrary protocol input remain outside this port.
 const CONTROL_KEYS = Object.freeze({
   Tab: { key: "Tab", code: "Tab", virtualKey: 9, bidi: "\uE004" },
@@ -44,11 +70,36 @@ function queuedKeyPress(dispatch, enqueue) {
     : enqueue("keyboard", key, () => dispatch(CONTROL_KEYS[key]));
 }
 
-function pointerPorts(width, height, enqueue, click, drag) {
+/** A move's bounded steps and duration, from a drag's, a swipe's or a pinch's options. */
+function moveOptions(options, defaults) {
+  if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["steps", "durationMs"].includes(key))) throw new Error("Only bounded pointer steps and duration are accepted");
+  const { steps = defaults.steps, durationMs = defaults.durationMs } = options;
+  if (!Number.isSafeInteger(steps) || steps < 1 || steps > 20 || !Number.isSafeInteger(durationMs) || durationMs < 0 || durationMs > 1000) throw new Error("Pointer moves require 1..20 steps and 0..1000 integer milliseconds");
+  return { steps, durationMs };
+}
+
+/** Each step's point from `from` to `to` and its share of the duration. */
+function moveSteps(from, to, { steps, durationMs }) {
+  return Array.from({ length: steps }, (_, index) => ({ x: Math.round(from.x + (to.x - from.x) * (index + 1) / steps),
+    y: Math.round(from.y + (to.y - from.y) * (index + 1) / steps), durationMs: Math.round(durationMs * (index + 1) / steps) - Math.round(durationMs * index / steps) }));
+}
+
+/**
+ * Click, drag, and with a `touch` dispatcher the touch gestures: a tap, a
+ * one-finger swipe and a two-finger pinch. `touch(frames)` puts fingers down
+ * at the first frame's points, moves them through the rest and lifts them,
+ * even when a move fails. Without one, touch input is refused.
+ */
+function pointerPorts(width, height, enqueue, click, drag, touch = null) {
   function point(x, y) {
     if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x >= width || y < 0 || y >= height) throw new Error("Finite pointer coordinates within the page viewport required");
     return { x: Math.min(width - 1, Math.round(x)), y: Math.min(height - 1, Math.round(y)) };
   }
+  const touching = control => frames => {
+    if (!touch) throw new Error("Touch input is Chrome-only");
+    return enqueue("touch", control, () => touch(frames()));
+  };
+  const finger = (id, { x, y }) => ({ x, y, id });
   return {
     async clickAt(x, y) {
       const position = point(x, y);
@@ -56,12 +107,27 @@ function pointerPorts(width, height, enqueue, click, drag) {
     },
     async dragAt(fromX, fromY, toX, toY, options = {}) {
       const from = point(fromX, fromY), to = point(toX, toY);
-      if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["steps", "durationMs"].includes(key))) throw new Error("Only bounded pointer steps and duration are accepted");
-      const { steps = 5, durationMs = 250 } = options;
-      if (!Number.isSafeInteger(steps) || steps < 1 || steps > 20 || !Number.isSafeInteger(durationMs) || durationMs < 0 || durationMs > 1000) throw new Error("Pointer drag requires 1..20 steps and 0..1000 integer milliseconds");
-      const moves = Array.from({ length: steps }, (_, index) => ({ x: Math.round(from.x + (to.x - from.x) * (index + 1) / steps),
-        y: Math.round(from.y + (to.y - from.y) * (index + 1) / steps), durationMs: Math.round(durationMs * (index + 1) / steps) - Math.round(durationMs * index / steps) }));
+      const moves = moveSteps(from, to, moveOptions(options, { steps: 5, durationMs: 250 }));
       return enqueue("pointer", "drag", () => drag(from, to, moves));
+    },
+    async tapAt(x, y) {
+      const at = point(x, y);
+      return touching("tap")(() => [{ points: [finger(0, at)], durationMs: 0 }]);
+    },
+    async swipeAt(fromX, fromY, toX, toY, options = {}) {
+      const from = point(fromX, fromY), to = point(toX, toY);
+      const moves = moveSteps(from, to, moveOptions(options, { steps: 10, durationMs: 250 }));
+      return touching("swipe")(() => [{ points: [finger(0, from)], durationMs: 0 }, ...moves.map(({ durationMs, ...at }) => ({ points: [finger(0, at)], durationMs }))]);
+    },
+    /** Two fingers either side of (x, y) on a level line, `fromDistance` apart, moved until they are `toDistance` apart. */
+    async pinchAt(x, y, fromDistance, toDistance, options = {}) {
+      if (![fromDistance, toDistance].every(distance => typeof distance === "number" && Number.isFinite(distance) && distance >= 2)) throw new Error("Pinch distances must be finite and at least 2 pixels");
+      const ends = distance => [point(x - distance / 2, y), point(x + distance / 2, y)];
+      const [fromLeft, fromRight] = ends(fromDistance), [toLeft, toRight] = ends(toDistance);
+      const bounds = moveOptions(options, { steps: 10, durationMs: 300 });
+      const left = moveSteps(fromLeft, toLeft, bounds), right = moveSteps(fromRight, toRight, bounds);
+      return touching("pinch")(() => [{ points: [finger(0, fromLeft), finger(1, fromRight)], durationMs: 0 },
+        ...left.map(({ durationMs, ...at }, index) => ({ points: [finger(0, at), finger(1, right[index])], durationMs }))]);
     },
   };
 }
@@ -102,6 +168,8 @@ export async function openHeadlessPage(browser, profileDirectory, options) {
   if (!["chrome", "firefox", "webkit"].includes(browser)) throw new Error(`No headless page for "${browser}": chrome, firefox or webkit`);
   if (!Number.isSafeInteger(options.width) || !Number.isSafeInteger(options.height) || options.width < 1 || options.height < 1 || options.width > 8192 || options.height > 8192) throw new Error("Finite bounded page width/height required");
   if (typeof profileDirectory !== "string" || !profileDirectory) throw new Error("An isolated page profile directory is required");
+  if (options.device !== undefined && !DEVICE_NAMES.includes(options.device)) throw new Error(`Device must be ${DEVICE_NAMES.join(", ")}`);
+  if ((options.device ?? "desktop") !== "desktop" && browser !== "chrome") throw new Error("Only Chrome emulates a phone or a tablet");
   if (mode === "interception" && options.workers && browser !== "chrome") throw new Error("Worker request interception is supported only by Chrome; select live mode for Firefox/WebKit worker behavior");
   const common = { ...options, mode, timeouts: resolveTimeouts(options.timeouts), evidence: createEvidence(options.evidenceLimits) };
   if (browser === "chrome") return chromePage(profileDirectory, common);
@@ -109,7 +177,7 @@ export async function openHeadlessPage(browser, profileDirectory, options) {
   return webkitPage(profileDirectory, common);
 }
 
-async function chromePage(profileDirectory, { respond, mode, width, height, binary, chromeArgs = [], workers = false, timeouts, evidence }) {
+async function chromePage(profileDirectory, { respond, mode, width, height, binary, chromeArgs = [], workers = false, device: deviceName = "desktop", timeouts, evidence }) {
   const chrome = await openHeadlessChrome(profileDirectory, binary, chromeArgs, { timeouts, onLifecycle: value => evidence.add("lifecycle", value) });
   try {
     const version = chrome.version;
@@ -147,9 +215,11 @@ async function chromePage(profileDirectory, { respond, mode, width, height, bina
     await send("Page.enable");
     await send("Network.enable");
     if (mode === "interception") await intercept("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
-    await send("Emulation.setUserAgentOverride", { userAgent: `${version.userAgent} ${CHECK_NAME}` });
-    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
-    const facts = { browser: "chrome", mode, workers, pid: chrome.pid, engineVersion: sanitizeText(version.product, 200) };
+    const device = DEVICES[deviceName] ?? null;
+    await send("Emulation.setUserAgentOverride", device ? deviceUserAgent(version.product, device) : { userAgent: `${version.userAgent} ${CHECK_NAME}` });
+    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: device !== null });
+    if (device) await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    const facts = { browser: "chrome", mode, workers, device: deviceName, pid: chrome.pid, engineVersion: sanitizeText(version.product, 200) };
     const enqueue = inputQueue(evidence);
     const pressKey = queuedKeyPress(async spec => {
       const modifiers = spec.shift ? 8 : 0;
@@ -175,7 +245,14 @@ async function chromePage(profileDirectory, { respond, mode, width, height, bina
           await pointerPause(durationMs);
           await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position, button: "left", buttons: 1 });
         }
-      }, () => send("Input.dispatchMouseEvent", { type: "mouseReleased", ...to, button: "left", buttons: 0, clickCount: 1 })));
+      }, () => send("Input.dispatchMouseEvent", { type: "mouseReleased", ...to, button: "left", buttons: 0, clickCount: 1 })),
+      frames => withKeyRelease(async () => {
+        await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: frames[0].points });
+        for (const { points, durationMs } of frames.slice(1)) {
+          await pointerPause(durationMs);
+          await send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: points });
+        }
+      }, () => send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })));
     let closed;
     return {
       product: version.product, facts, pressKey, ...pointer,
